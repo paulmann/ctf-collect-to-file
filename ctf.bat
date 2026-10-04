@@ -2,16 +2,17 @@
 rem ###############################################################################
 rem # Script:  ctf.bat (Collect To File for Windows)
 rem # Author:  Mikhail Deynekin <Mikhail@Deynekin.com> | https://deynekin.com
-rem # Version: 3.0.0-win
+rem # Version: 3.1.0-win
 rem #
 rem # Description:
 rem #   Windows BAT port of ctf.sh. Recursively collects source files by
-rem #   extension into a single Markdown aggregate.
+rem #   extension into a single Markdown aggregate, preserving paths relative
+rem #   to the root search directory.
 rem #
-rem #   Pure CMD cannot reliably implement binary detection, Unicode-safe paths,
-rem #   arbitrary file names, and dynamic Markdown fences. Therefore this BAT
-rem #   file uses an embedded PowerShell payload while remaining a .bat entry
-rem #   point.
+rem #   Pure CMD cannot reliably implement binary detection, encoding handling,
+rem #   Unicode-safe paths, arbitrary file names, and dynamic Markdown fences.
+rem #   Therefore this BAT file uses an embedded PowerShell payload while
+rem #   remaining a normal .bat entry point.
 rem #
 rem # Usage:
 rem #   ctf.bat [EXTENSION] [SOURCE_DIR] [OUTPUT_FILE]
@@ -19,17 +20,18 @@ rem #
 rem # Compatibility:
 rem #   Windows 10/11, Windows PowerShell 5.1 or newer.
 rem #
-rem # Changes in 3.0.0-win:
-rem #   - Initial professional Windows port.
-rem #   - Added temporary-file based output writing.
-rem #   - Added dynamic Markdown fence selection.
-rem #   - Added binary guard and unreadable-file skipping.
+rem # Changes in 3.1.0-win:
+rem #   - Improved text encoding detection: BOM, UTF-8 validation, ANSI fallback.
+rem #   - Output Markdown is written as UTF-8 without BOM.
+rem #   - Dynamic Markdown fences are computed from decoded text content.
+rem #   - Temporary-file based output writing is preserved.
+rem #   - Binary guard and unreadable-file skipping are preserved.
 rem ###############################################################################
 
 setlocal EnableExtensions
 
 set "CTF_SCRIPT_NAME=%~nx0"
-set "CTF_SCRIPT_VERSION=3.0.0-win"
+set "CTF_SCRIPT_VERSION=3.1.0-win"
 set "SELF=%~f0"
 set "TMP_PS1=%TEMP%\%~n0_%RANDOM%%RANDOM%.ps1"
 set "MARKER=::CTF_POWERSHELL_SCRIPT::"
@@ -77,7 +79,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $ScriptName = if ($env:CTF_SCRIPT_NAME) { $env:CTF_SCRIPT_NAME } else { 'ctf.bat' }
-$ScriptVersion = if ($env:CTF_SCRIPT_VERSION) { $env:CTF_SCRIPT_VERSION } else { '3.0.0-win' }
+$ScriptVersion = if ($env:CTF_SCRIPT_VERSION) { $env:CTF_SCRIPT_VERSION } else { '3.1.0-win' }
 
 $UseColor = $false
 try {
@@ -227,14 +229,15 @@ function Test-FileBinary {
         $buffer = New-Object byte[] 8192
         $read = $fs.Read($buffer, 0, $buffer.Length)
 
-        # Recognize common text BOMs before scanning for NUL bytes.
+        # UTF-32 files are treated as binary for simplicity.
         if ($read -ge 4) {
             if (($buffer[0] -eq 0xFF -and $buffer[1] -eq 0xFE -and $buffer[2] -eq 0x00 -and $buffer[3] -eq 0x00) -or
                 ($buffer[0] -eq 0x00 -and $buffer[1] -eq 0x00 -and $buffer[2] -eq 0xFE -and $buffer[3] -eq 0xFF)) {
-                return $false
+                return $true
             }
         }
 
+        # Recognize common text BOMs before scanning for NUL bytes.
         if ($read -ge 3 -and $buffer[0] -eq 0xEF -and $buffer[1] -eq 0xBB -and $buffer[2] -eq 0xBF) {
             return $false
         }
@@ -258,58 +261,98 @@ function Test-FileBinary {
     }
 }
 
-function Get-MarkdownFence {
+function Get-TextEncoding {
     param([string]$Path)
+
+    $fs = [System.IO.File]::OpenRead($Path)
+
+    try {
+        if ($fs.Length -eq 0) {
+            return [System.Text.Encoding]::UTF8
+        }
+
+        $head = New-Object byte[] 4096
+        $read = $fs.Read($head, 0, $head.Length)
+
+        if ($read -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+            return [System.Text.Encoding]::UTF8
+        }
+
+        if ($read -ge 2) {
+            if ($head[0] -eq 0xFF -and $head[1] -eq 0xFE) {
+                return [System.Text.Encoding]::Unicode
+            }
+
+            if ($head[0] -eq 0xFE -and $head[1] -eq 0xFF) {
+                return [System.Text.Encoding]::BigEndianUnicode
+            }
+        }
+
+        # If there is no BOM, try to detect UTF-8 without falling over
+        # a possible truncated multi-byte sequence at the sample boundary.
+        $len = $read
+        if ($len -eq $head.Length -and $len -gt 4) {
+            $len -= 4
+        }
+
+        $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
+
+        try {
+            [void]$utf8Strict.GetString($head, 0, $len)
+            return [System.Text.Encoding]::UTF8
+        } catch {
+            return [System.Text.Encoding]::Default
+        }
+    } finally {
+        $fs.Dispose()
+    }
+}
+
+function Get-MarkdownFence {
+    param(
+        [string]$Path,
+        [System.Text.Encoding]$Encoding
+    )
+
+    $bt = [char]96
+    $tilde = [char]126
 
     $maxBackticks = 0
     $maxTildes = 0
 
     try {
-        $fs = [System.IO.File]::OpenRead($Path)
+        $sr = New-Object System.IO.StreamReader($Path, $Encoding, $true)
     } catch {
-        return ([string]::new([char]96, 3))
+        return ([string]::new($bt, 3))
     }
 
     try {
-        # Skip BOM if present, so the first real line is parsed correctly.
-        $head = New-Object byte[] 4
-        $headRead = $fs.Read($head, 0, 4)
-        $offset = 0
+        $buffer = New-Object char[] 65536
 
-        if ($headRead -ge 4 -and $head[0] -eq 0xFF -and $head[1] -eq 0xFE -and $head[2] -eq 0x00 -and $head[3] -eq 0x00) {
-            $offset = 4
-        } elseif ($headRead -ge 4 -and $head[0] -eq 0x00 -and $head[1] -eq 0x00 -and $head[2] -eq 0xFE -and $head[3] -eq 0xFF) {
-            $offset = 4
-        } elseif ($headRead -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
-            $offset = 3
-        } elseif ($headRead -ge 2 -and (($head[0] -eq 0xFF -and $head[1] -eq 0xFE) -or ($head[0] -eq 0xFE -and $head[1] -eq 0xFF))) {
-            $offset = 2
-        }
-
-        $fs.Position = $offset
-
-        $buffer = New-Object byte[] 65536
         $afterNewline = $true
         $spaces = 0
         $prefixValid = $true
-        $currentChar = 0
+        $currentChar = [char]0
         $currentCount = 0
 
-        while (($read = $fs.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        while (($read = $sr.Read($buffer, 0, $buffer.Length)) -gt 0) {
             for ($i = 0; $i -lt $read; $i++) {
-                $b = $buffer[$i]
+                $c = $buffer[$i]
 
                 # Treat LF and CR as line separators for fence detection.
-                if ($b -eq 10 -or $b -eq 13) {
-                    if ($currentChar -ne 0) {
-                        if ($currentChar -eq 96 -and $currentCount -gt $maxBackticks) {
-                            $maxBackticks = $currentCount
-                        }
-                        if ($currentChar -eq 126 -and $currentCount -gt $maxTildes) {
-                            $maxTildes = $currentCount
+                if ($c -eq [char]10 -or $c -eq [char]13) {
+                    if ($currentChar -ne [char]0) {
+                        if ($currentChar -eq $bt) {
+                            if ($currentCount -gt $maxBackticks) {
+                                $maxBackticks = $currentCount
+                            }
+                        } elseif ($currentChar -eq $tilde) {
+                            if ($currentCount -gt $maxTildes) {
+                                $maxTildes = $currentCount
+                            }
                         }
 
-                        $currentChar = 0
+                        $currentChar = [char]0
                         $currentCount = 0
                     }
 
@@ -320,7 +363,7 @@ function Get-MarkdownFence {
                 }
 
                 if ($afterNewline) {
-                    if ($b -eq 32) {
+                    if ($c -eq [char]32) {
                         if ($spaces -lt 3) {
                             $spaces++
                         } else {
@@ -328,29 +371,32 @@ function Get-MarkdownFence {
                         }
 
                         continue
-                    } else {
-                        $afterNewline = $false
+                    }
 
-                        if (($b -eq 96 -or $b -eq 126) -and $prefixValid) {
-                            $currentChar = $b
-                            $currentCount = 1
-                        } else {
-                            $prefixValid = $false
-                        }
+                    $afterNewline = $false
+
+                    if (($c -eq $bt -or $c -eq $tilde) -and $prefixValid) {
+                        $currentChar = $c
+                        $currentCount = 1
+                    } else {
+                        $prefixValid = $false
                     }
                 } else {
-                    if ($currentChar -ne 0) {
-                        if ($b -eq $currentChar) {
+                    if ($currentChar -ne [char]0) {
+                        if ($c -eq $currentChar) {
                             $currentCount++
                         } else {
-                            if ($currentChar -eq 96 -and $currentCount -gt $maxBackticks) {
-                                $maxBackticks = $currentCount
-                            }
-                            if ($currentChar -eq 126 -and $currentCount -gt $maxTildes) {
-                                $maxTildes = $currentCount
+                            if ($currentChar -eq $bt) {
+                                if ($currentCount -gt $maxBackticks) {
+                                    $maxBackticks = $currentCount
+                                }
+                            } elseif ($currentChar -eq $tilde) {
+                                if ($currentCount -gt $maxTildes) {
+                                    $maxTildes = $currentCount
+                                }
                             }
 
-                            $currentChar = 0
+                            $currentChar = [char]0
                             $currentCount = 0
                             $prefixValid = $false
                         }
@@ -359,26 +405,29 @@ function Get-MarkdownFence {
             }
         }
 
-        if ($currentChar -ne 0) {
-            if ($currentChar -eq 96 -and $currentCount -gt $maxBackticks) {
-                $maxBackticks = $currentCount
-            }
-            if ($currentChar -eq 126 -and $currentCount -gt $maxTildes) {
-                $maxTildes = $currentCount
+        if ($currentChar -ne [char]0) {
+            if ($currentChar -eq $bt) {
+                if ($currentCount -gt $maxBackticks) {
+                    $maxBackticks = $currentCount
+                }
+            } elseif ($currentChar -eq $tilde) {
+                if ($currentCount -gt $maxTildes) {
+                    $maxTildes = $currentCount
+                }
             }
         }
     } finally {
-        $fs.Dispose()
+        $sr.Dispose()
     }
 
     $backtickLen = [math]::Max(3, $maxBackticks + 1)
     $tildeLen = [math]::Max(3, $maxTildes + 1)
 
     if ($backtickLen -le $tildeLen) {
-        return ([string]::new([char]96, $backtickLen))
+        return ([string]::new($bt, $backtickLen))
     }
 
-    return ([string]::new('~', $tildeLen))
+    return ([string]::new($tilde, $tildeLen))
 }
 
 function Get-LanguageTag {
@@ -399,85 +448,85 @@ function Get-LanguageTag {
     $ext = [System.IO.Path]::GetExtension($FilePath).TrimStart('.').ToLowerInvariant()
 
     switch ($ext) {
-        'sh'      { return 'bash' }
-        'bash'    { return 'bash' }
-        'zsh'     { return 'bash' }
-        'ksh'     { return 'bash' }
-        'fish'    { return 'bash' }
-        'py'      { return 'python' }
-        'pyw'     { return 'python' }
-        'rb'      { return 'ruby' }
-        'pl'      { return 'perl' }
-        'pm'      { return 'perl' }
-        'php'     { return 'php' }
-        'php5'    { return 'php' }
-        'php7'    { return 'php' }
-        'php8'    { return 'php' }
-        'js'      { return 'javascript' }
-        'mjs'     { return 'javascript' }
-        'cjs'     { return 'javascript' }
-        'ts'      { return 'typescript' }
-        'tsx'     { return 'tsx' }
-        'jsx'     { return 'jsx' }
-        'html'    { return 'html' }
-        'htm'     { return 'html' }
-        'xhtml'   { return 'html' }
-        'xml'     { return 'xml' }
-        'xsl'     { return 'xml' }
-        'xsd'     { return 'xml' }
-        'rss'     { return 'xml' }
-        'atom'    { return 'xml' }
-        'svg'     { return 'xml' }
-        'css'     { return 'css' }
-        'scss'    { return 'scss' }
-        'sass'    { return 'sass' }
-        'less'    { return 'less' }
-        'json'    { return 'json' }
-        'jsonc'   { return 'json' }
-        'json5'   { return 'json' }
-        'yaml'    { return 'yaml' }
-        'yml'     { return 'yaml' }
-        'toml'    { return 'toml' }
-        'sql'     { return 'sql' }
-        'go'      { return 'go' }
-        'rs'      { return 'rust' }
-        'c'       { return 'c' }
-        'cpp'     { return 'cpp' }
-        'cc'      { return 'cpp' }
-        'cxx'     { return 'cpp' }
-        'c++'     { return 'cpp' }
-        'h'       { return 'c' }
-        'hh'      { return 'c' }
-        'hpp'     { return 'cpp' }
-        'hxx'     { return 'cpp' }
-        'java'    { return 'java' }
-        'kt'      { return 'kotlin' }
-        'kts'     { return 'kotlin' }
-        'swift'   { return 'swift' }
-        'cs'      { return 'csharp' }
-        'lua'     { return 'lua' }
-        'r'       { return 'r' }
-        'ps1'     { return 'powershell' }
-        'psm1'    { return 'powershell' }
-        'psd1'    { return 'powershell' }
-        'md'      { return 'markdown' }
-        'markdown'{ return 'markdown' }
+        'sh'       { return 'bash' }
+        'bash'     { return 'bash' }
+        'zsh'      { return 'bash' }
+        'ksh'      { return 'bash' }
+        'fish'     { return 'bash' }
+        'py'       { return 'python' }
+        'pyw'      { return 'python' }
+        'rb'       { return 'ruby' }
+        'pl'       { return 'perl' }
+        'pm'       { return 'perl' }
+        'php'      { return 'php' }
+        'php5'     { return 'php' }
+        'php7'     { return 'php' }
+        'php8'     { return 'php' }
+        'js'       { return 'javascript' }
+        'mjs'      { return 'javascript' }
+        'cjs'      { return 'javascript' }
+        'ts'       { return 'typescript' }
+        'tsx'      { return 'tsx' }
+        'jsx'      { return 'jsx' }
+        'html'     { return 'html' }
+        'htm'      { return 'html' }
+        'xhtml'    { return 'html' }
+        'xml'      { return 'xml' }
+        'xsl'      { return 'xml' }
+        'xsd'      { return 'xml' }
+        'rss'      { return 'xml' }
+        'atom'     { return 'xml' }
+        'svg'      { return 'xml' }
+        'css'      { return 'css' }
+        'scss'     { return 'scss' }
+        'sass'     { return 'sass' }
+        'less'     { return 'less' }
+        'json'     { return 'json' }
+        'jsonc'    { return 'json' }
+        'json5'    { return 'json' }
+        'yaml'     { return 'yaml' }
+        'yml'      { return 'yaml' }
+        'toml'     { return 'toml' }
+        'sql'      { return 'sql' }
+        'go'       { return 'go' }
+        'rs'       { return 'rust' }
+        'c'        { return 'c' }
+        'cpp'      { return 'cpp' }
+        'cc'       { return 'cpp' }
+        'cxx'      { return 'cpp' }
+        'c++'      { return 'cpp' }
+        'h'        { return 'c' }
+        'hh'       { return 'c' }
+        'hpp'      { return 'cpp' }
+        'hxx'      { return 'cpp' }
+        'java'     { return 'java' }
+        'kt'       { return 'kotlin' }
+        'kts'      { return 'kotlin' }
+        'swift'    { return 'swift' }
+        'cs'       { return 'csharp' }
+        'lua'      { return 'lua' }
+        'r'        { return 'r' }
+        'ps1'      { return 'powershell' }
+        'psm1'     { return 'powershell' }
+        'psd1'     { return 'powershell' }
+        'md'       { return 'markdown' }
+        'markdown' { return 'markdown' }
         'dockerfile' { return 'dockerfile' }
         'makefile' { return 'makefile' }
-        'mk'      { return 'makefile' }
-        'conf'    { return 'ini' }
-        'cfg'     { return 'ini' }
-        'ini'     { return 'ini' }
-        'env'     { return 'bash' }
-        'envrc'   { return 'bash' }
-        'nginx'   { return 'nginx' }
-        'tf'      { return 'hcl' }
-        'tfvars'  { return 'hcl' }
-        'cmake'   { return 'cmake' }
-        'rst'     { return 'rst' }
-        'txt'     { return 'text' }
-        'text'    { return 'text' }
-        'log'     { return 'text' }
+        'mk'       { return 'makefile' }
+        'conf'     { return 'ini' }
+        'cfg'      { return 'ini' }
+        'ini'      { return 'ini' }
+        'env'      { return 'bash' }
+        'envrc'    { return 'bash' }
+        'nginx'    { return 'nginx' }
+        'tf'       { return 'hcl' }
+        'tfvars'   { return 'hcl' }
+        'cmake'    { return 'cmake' }
+        'rst'      { return 'rst' }
+        'txt'      { return 'text' }
+        'text'     { return 'text' }
+        'log'      { return 'text' }
         default {
             if ($ext -match '^[a-z0-9_+.-]+$') {
                 return $ext
@@ -652,6 +701,7 @@ try {
 $FileCount = 0
 $SkipCount = 0
 $completed = $false
+$btChar = [char]96
 
 try {
     $outStream = [System.IO.File]::Create($tmpFile)
@@ -712,8 +762,9 @@ try {
                     continue
                 }
 
+                $encoding = Get-TextEncoding -Path $file
                 $lang = Get-LanguageTag -FilePath $file
-                $fence = Get-MarkdownFence -Path $file
+                $fence = Get-MarkdownFence -Path $file -Encoding $encoding
             } catch {
                 Write-LogWarn "Skip (unreadable): $relDisplay"
                 $SkipCount++
@@ -722,32 +773,31 @@ try {
 
             $FileCount++
 
-            if ($relDisplay.IndexOf([char]96) -ge 0) {
+            if ($relDisplay.IndexOf($btChar) -ge 0) {
                 $writer.Write("### $relDisplay`r`n`r`n")
             } else {
-                $writer.Write('### ' + [char]96 + $relDisplay + [char]96 + "`r`n`r`n")
+                $writer.Write('### ' + $btChar + $relDisplay + $btChar + "`r`n`r`n")
             }
 
             $writer.Write($fence + $lang + "`r`n")
             $writer.Flush()
 
-            $fileStream = [System.IO.File]::OpenRead($file)
-            $endsWithNewline = $true
+            $sr = New-Object System.IO.StreamReader($file, $encoding, $true)
+            $lastChar = [char]0
 
             try {
-                if ($fileStream.Length -gt 0) {
-                    [void]$fileStream.Seek(-1, [System.IO.SeekOrigin]::End)
-                    $lastByte = $fileStream.ReadByte()
-                    $endsWithNewline = ($lastByte -eq 10)
-                    [void]$fileStream.Seek(0, [System.IO.SeekOrigin]::Begin)
-                }
+                $charBuffer = New-Object char[] 65536
 
-                $fileStream.CopyTo($outStream)
+                while (($read = $sr.Read($charBuffer, 0, $charBuffer.Length)) -gt 0) {
+                    $writer.Write([string]::new($charBuffer, 0, $read))
+                    $lastChar = $charBuffer[$read - 1]
+                }
             } finally {
-                $fileStream.Dispose()
+                $sr.Dispose()
             }
 
-            if (-not $endsWithNewline) {
+            # Ensure the closing fence always starts on its own line.
+            if ($lastChar -ne [char]0 -and $lastChar -ne [char]10) {
                 $writer.Write("`r`n")
             }
 
