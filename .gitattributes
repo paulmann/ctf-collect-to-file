@@ -1,0 +1,22 @@
+# Переводы строк фиксируются в репозитории, а не оставляются на усмотрение
+# core.autocrlf: для .bat это вопрос работоспособности, а не стиля.
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+Makefile text eol=lf
+LICENSE text eol=lf
+VERSION text eol=lf
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Бинарные артефакты (если появятся) не должны нормализовываться.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.pdf   binary

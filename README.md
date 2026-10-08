@@ -1,1061 +1,552 @@
-# `ctf` — Collect To File
+# ctf — Collect To File
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Bash-4.2%2B-blue.svg" alt="Bash 4.2+">
-  <img src="https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg" alt="PowerShell 5.1+">
-  <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey.svg" alt="Linux / macOS">
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/Version-3.1.0-brightgreen.svg" alt="Version 3.1.0">
-  <img src="https://img.shields.io/badge/Output-Markdown-orange.svg" alt="Markdown Output">
+Recursively collects source files into a single Markdown, JSON, JSONL or text
+document, preserving paths relative to the source root. Built for assembling
+LLM context, code-review bundles and auditable source snapshots.
+
+<p>
+  <img src="https://img.shields.io/badge/version-4.0.0-brightgreen" alt="version 4.0.0">
+  <img src="https://img.shields.io/badge/bash-4.2%2B-blue" alt="bash 4.2+">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="Linux / macOS">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6" alt="Windows 10/11">
+  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT">
+  <img src="https://img.shields.io/badge/shellcheck-clean-success" alt="shellcheck clean">
 </p>
 
 ---
 
-## 📋 Table of Contents
+## Contents
 
-1. [Introduction](#1-introduction)
-2. [Architecture & Design](#2-architecture--design)
-3. [System Requirements](#3-system-requirements)
-4. [Installation & Global Setup](#4-installation--global-setup)
-5. [Usage Reference](#5-usage-reference)
-6. [Advanced Usage](#6-advanced-usage)
-7. [Technical Deep Dive](#7-technical-deep-dive)
-8. [Troubleshooting](#8-troubleshooting)
-9. [Contributing](#9-contributing)
-10. [License & Author](#10-license--author)
-
----
-
-## 1. Introduction
-
-### 1.1 What is `ctf`?
-
-`ctf` (Collect To File) is a battle-tested, cross-platform command-line utility that recursively collects source files by extension into a single, well-structured Markdown document. It was designed specifically for the era of Large Language Models (LLMs), where developers need to feed entire codebases into models like Claude, GPT-4, or Gemini.
-
-### 1.2 Why `ctf` Exists
-
-In modern software development, there are three critical scenarios where you need to aggregate multiple source files into a single document:
-
-1. **LLM Context Engineering**: Modern LLMs have large context windows (100K-200K tokens), but they work best when given structured, well-formatted input. Copy-pasting files manually loses directory context and is error-prone.
-
-2. **Cross-File Code Reviews**: When reviewing a feature branch that touches 20+ files, reviewers need to see all changes in context. A single Markdown document with syntax highlighting is far more readable than a series of diffs.
-
-3. **Project Archival**: For documentation, auditing, or compliance purposes, you may need a snapshot of all source files with metadata about when and how the snapshot was created.
-
-### 1.3 Target Audience
-
-This tool is designed for:
-- **Software Engineers** who need to feed code to LLMs for refactoring, bug fixing, or code generation
-- **Code Reviewers** who need to consolidate feature branches for review
-- **Technical Writers** who need to generate documentation from source code
-- **Security Auditors** who need to feed entire applications into static analysis tools
-- **DevOps Engineers** who need to generate code dumps as CI/CD artifacts
-
-### 1.4 Version History
-
-| Version | Date       | Changes                                                                 |
-|---------|------------|-------------------------------------------------------------------------|
-| 1.0.0   | 2025-04    | Initial release. Bash-only, Linux support.                               |
-| 2.0.0   | 2025-06    | Added binary detection fallback, improved path resolution.               |
-| 3.0.0   | 2025-08    | Major refactor: atomic writes, dynamic Markdown fences, symlink safety.  |
-| 3.1.0   | 2025-10    | Windows support via BAT+PowerShell hybrid, encoding detection.          |
-
-### 1.5 Comparison with Alternatives
-
-| Feature                | `ctf` | Manual Copy-Paste | `cat` + `grep` | Custom Scripts |
-|------------------------|-------|-------------------|----------------|----------------|
-| Preserves Paths        | ✅    | ❌                | ❌             | ⚠️            |
-| Syntax Highlighting    | ✅    | ⚠️               | ❌             | ⚠️            |
-| Binary Detection       | ✅    | ❌                | ❌             | ⚠️            |
-| Dynamic Fences         | ✅    | ❌                | ❌             | ❌             |
-| Cross-Platform         | ✅    | ✅                | ⚠️             | ⚠️            |
-| LLM-Optimized Output   | ✅    | ❌                | ❌             | ⚠️            |
+1. [Why](#1-why)
+2. [Install](#2-install)
+3. [Quick start](#3-quick-start)
+4. [Options reference](#4-options-reference)
+5. [Output formats](#5-output-formats)
+6. [Controlling what gets collected](#6-controlling-what-gets-collected)
+7. [Fitting a token budget](#7-fitting-a-token-budget)
+8. [Self-update](#8-self-update)
+9. [Exit codes](#9-exit-codes)
+10. [Windows](#10-windows)
+11. [Configuration file](#11-configuration-file)
+12. [Behaviour worth knowing](#12-behaviour-worth-knowing)
+13. [Development](#13-development)
+14. [Performance](#14-performance)
+15. [License](#15-license)
 
 ---
 
-## 2. Architecture & Design
+## 1. Why
 
-### 2.1 High-Level Pipeline
+Three situations come up constantly:
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ctf [EXT] [SRC] [OUT]                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          1. Argument Normalization                           │
-│  - Strip leading dot from extension                                          │
-│  - Resolve source directory to absolute path                                 │
-│  - Determine default output filename if not specified                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          2. File Discovery                                   │
-│  - Linux: find -type f -name "*.EXT" -print0 | sort -z                       │
-│  - Windows: Get-ChildItem -Recurse -File -Filter "*.EXT"                     │
-│  - Exclude output file itself                                                │
-│  - Exclude stale temporary files                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          3. Metadata Header                                  │
-│  - Generation timestamp (UTC)                                                │
-│  - Script version                                                            │
-│  - Source path                                                               │
-│  - Extension filter                                                          │
-│  - Candidate count                                                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          4. Per-File Processing Loop                         │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │ 4.1 Check readability                                               │    │
-│  │ 4.2 Check for binary content                                        │    │
-│  │ 4.3 Detect encoding (Windows only)                                  │    │
-│  │ 4.4 Compute safe Markdown fence                                     │    │
-│  │ 4.5 Map extension to language tag                                   │    │
-│  │ 4.6 Append heading + fenced code block                              │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          5. Summary Footer                                   │
-│  - Processed count                                                           │
-│  - Skipped count                                                             │
-│  - Total count                                                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          6. Atomic Finalization                              │
-│  - Move temp file to target path                                             │
-│  - Or write through symlink if target exists                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+- **LLM context.** A model reasons better over one structured document than
+  over twenty pasted fragments: it keeps the directory layout, the file
+  boundaries and the language of each file. `ctf` produces exactly that, and
+  can cap it at a token budget you specify.
+- **Cross-file review.** A branch touching 20 files is easier to read as a
+  single syntax-highlighted document than as 20 diffs.
+- **Snapshots and audits.** A reproducible, timestamped aggregate of the
+  sources, with per-file hashes on request.
 
-### 2.2 Dynamic Markdown Fences
-
-One of the most critical features of `ctf` is its ability to generate **safe** Markdown code fences. The problem it solves:
-
-If a file contains Markdown code fences itself (e.g., a README.md file with ```bash blocks), and you wrap it in a standard ``` fence, the inner fence will close the outer fence prematurely, breaking the entire document structure.
-
-**Solution**: `ctf` scans each file for the longest sequence of backticks (`` ` ``) and tildes (`~`) at the start of any line, then emits a fence **one character longer** than the maximum found.
-
-```text
-Example:
-- File contains: ``` (3 backticks)
-- ctf emits: ```` (4 backticks)
-
-Example:
-- File contains: ````` (5 backticks)
-- ctf emits: `````` (6 backticks)
-```
-
-This guarantees that the outer fence can never be closed by content inside the file.
-
-### 2.3 Binary Detection Algorithm
-
-The binary detection algorithm works in two stages:
-
-**Stage 1: MIME Type Detection (Linux)**
-If the `file` utility is available, `ctf` queries `--mime-encoding` for the string `binary`. This is the most reliable method as it uses the system's magic database.
-
-**Stage 2: Null Byte Fallback**
-If `file` is not available (minimal systems, containers), `ctf` falls back to scanning the first 8 KiB of each file for null bytes (`\x00`). This is a heuristic but works well in practice because:
-- Text files rarely contain null bytes
-- Binary files (images, executables, archives) almost always contain null bytes
-
-**Windows Implementation**:
-On Windows, the PowerShell payload reads the first 8 KiB via a .NET `FileStream`, recognizes BOMs (UTF-8, UTF-16 LE/BE), and scans for `0x00` bytes.
-
-### 2.4 Atomic Writes
-
-`ctf` never writes directly to the target file. Instead, it:
-
-1. Creates a hidden temporary file in the target directory (`.output.md.ctf.XXXXXX`)
-2. Writes all content to the temp file
-3. Atomically moves the temp file to the target path
-
-This ensures that if the script is interrupted (Ctrl+C, power failure, disk full), you never end up with a half-written output file.
-
-**Symlink Safety**: If the target path is a symlink, `ctf` writes *through* the symlink rather than replacing it, preserving the link.
+`ctf` is a single self-contained script with no dependencies beyond a POSIX
+userland. It does not shell out to `eval`, it does not execute anything it
+reads, and it never writes outside the file you asked for.
 
 ---
 
-## 3. System Requirements
-
-### 3.1 Linux / macOS (`ctf.sh`)
-
-**Operating Systems**:
-- Linux: Debian 10-13, Ubuntu 20-24, CentOS 7, RHEL 8/9, Fedora 35+
-- macOS: 11.0+ (Big Sur and later)
-
-**Shell**:
-- Bash 4.2 or higher
-- Verify: `bash --version`
-
-**Permissions**:
-- Read access to all source files
-- Write access to the output directory
-- Execute permission on the script
-
-**Dependencies** (all standard on any Unix-like system):
-| Utility  | Purpose                        | Version Required |
-|----------|--------------------------------|------------------|
-| `find`   | File discovery                 | GNU findutils    |
-| `sort`   | Sorting file list              | GNU coreutils    |
-| `cat`    | File content output            | GNU coreutils    |
-| `head`   | Binary detection fallback      | GNU coreutils    |
-| `od`     | Binary detection fallback      | GNU coreutils    |
-| `date`   | Timestamp generation           | GNU coreutils    |
-| `basename` | Path manipulation            | GNU coreutils    |
-| `dirname` | Path manipulation             | GNU coreutils    |
-| `awk`    | Dynamic fence computation      | Any POSIX awk    |
-| `file`   | Binary detection (optional)    | Any version      |
-
-### 3.2 Windows (`ctf.bat`)
-
-**Operating Systems**:
-- Windows 10 (version 1809 or later)
-- Windows 11
-
-**Runtime**:
-- Windows PowerShell 5.1 or newer (pre-installed on all supported Windows versions)
-- Verify: `powershell -Command "$PSVersionTable.PSVersion"`
-
-**Permissions**:
-- Read access to all source files
-- Write access to the output directory
-- No administrator privileges required
-
-**Dependencies**:
-- None beyond the operating system itself
-- The BAT wrapper automatically extracts and executes an embedded PowerShell payload
-
----
-
-## 4. Installation & Global Setup
-
-### 4.1 Linux / macOS
-
-#### 4.1.1 Clone the Repository
+## 2. Install
 
 ```bash
 git clone https://github.com/paulmann/ctf-collect-to-file.git
 cd ctf-collect-to-file
+
+# user-level install into ~/.local/bin
+make install
+
+# or system-wide
+sudo make install PREFIX=/usr/local
+
+# or without make
+./install.sh --prefix "$HOME/.local"
 ```
 
-#### 4.1.2 Set Execution Permissions
+Verify:
 
 ```bash
-chmod 0755 ctf.sh
+ctf --version      # ctf v4.0.0
+ctf --print-config .
 ```
 
-#### 4.1.3 Verify the Shebang
+Requirements: **bash 4.2+** (CentOS/RHEL 7 baseline), plus `awk`, `find`,
+`sort`, `sed`, `head`, `tail`, `od`, `cat`, `wc`, `mktemp`, `stat`.
+Optional and auto-detected: `file` (faster binary check), `git` (`--git`),
+`sha256sum`/`shasum` (`--dedup`, `--metadata`), `curl`/`wget`/`python3`/`perl`
+(`--update`). Run `ctf --print-config .` to see what was detected.
 
-Ensure the script's interpreter line is correct for your system:
+---
+
+## 3. Quick start
 
 ```bash
-head -1 ctf.sh
-# Expected output: #!/usr/bin/env bash
-```
-
-If your system has Bash in a non-standard location, you may need to edit the first line.
-
-#### 4.1.4 Option A: User-Level Installation (Recommended)
-
-This installs the script only for your current user using the standard `~/.local/bin` directory. No `sudo` required.
-
-**Step 1: Create the local bin directory**
-
-```bash
-mkdir -p ~/.local/bin
-```
-
-**Step 2: Create an extension-less symlink**
-
-```bash
-ln -sf "$(pwd)/ctf.sh" ~/.local/bin/ctf
-chmod 0755 ~/.local/bin/ctf
-```
-
-**Step 3: Ensure ~/.local/bin is in your PATH**
-
-Check if it's already in your PATH:
-
-```bash
-echo "$PATH" | grep -q "$HOME/.local/bin" && echo "Already in PATH" || echo "Not in PATH"
-```
-
-If not in PATH, add it to your shell configuration:
-
-```bash
-# For Bash users
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# For Zsh users
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**Step 4: Verify the installation**
-
-```bash
-ctf --version
-# Expected output: ctf v3.1.0
-```
-
-#### 4.1.5 Option B: System-Wide Installation
-
-This makes `ctf` available to all users on the machine. Requires `sudo`.
-
-```bash
-sudo ln -sf "$(pwd)/ctf.sh" /usr/local/bin/ctf
-sudo chmod 0755 /usr/local/bin/ctf
-```
-
-**Verify:**
-
-```bash
-ctf --version
-```
-
-#### 4.1.6 Option C: Homebrew (macOS)
-
-If you're on macOS and use Homebrew, you can create a local tap:
-
-```bash
-# Create a tap directory
-mkdir -p $(brew --repository)/Library/Taps/local/homebrew-ctf
-
-# Create a formula file
-cat > $(brew --repository)/Library/Taps/local/homebrew-ctf/ctf.rb << 'EOF'
-class Ctf < Formula
-  desc "Collect source files into a Markdown aggregate"
-  homepage "https://github.com/paulmann/ctf-collect-to-file"
-  url "https://github.com/paulmann/ctf-collect-to-file/archive/refs/heads/main.tar.gz"
-  version "3.1.0"
-
-  def install
-    bin.install "ctf.sh" => "ctf"
-  end
-end
-EOF
-
-# Install
-brew install local/ctf
-```
-
-### 4.2 Windows 10 / 11
-
-On Windows, `CMD` and `PowerShell` automatically resolve `.bat` extensions if the directory is in the `PATH` and `.BAT` is listed in the `PATHEXT` environment variable (which is true by default).
-
-#### 4.2.1 Automated Installation via PowerShell (Recommended)
-
-Run this in a standard PowerShell window to create a local tools directory and add it to your User `PATH`.
-
-**Step 1: Open PowerShell**
-
-Press `Win + X` and select "Windows PowerShell" or "Windows Terminal".
-
-**Step 2: Run the installation script**
-
-```powershell
-# Create a local tools directory
-$toolsDir = "$env:USERPROFILE\bin"
-if (-not (Test-Path $toolsDir)) { 
-    New-Item -ItemType Directory -Path $toolsDir | Out-Null 
-}
-
-# Copy the script to the tools directory
-Copy-Item -Path ".\ctf.bat" -Destination $toolsDir -Force
-
-# Add to User PATH if not already present
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$toolsDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$userPath;$toolsDir", "User")
-    Write-Host "[SUCCESS] Added $toolsDir to your User PATH." -ForegroundColor Green
-    Write-Host "Please RESTART your terminal for changes to take effect." -ForegroundColor Yellow
-} else {
-    Write-Host "[INFO] $toolsDir is already in your PATH." -ForegroundColor Cyan
-}
-```
-
-**Step 3: Restart your terminal**
-
-Close and reopen your PowerShell or CMD window for the PATH changes to take effect.
-
-**Step 4: Verify the installation**
-
-```powershell
-ctf --version
-# Expected output: ctf.bat v3.1.0
-```
-
-#### 4.2.2 Manual GUI Installation
-
-If you prefer a graphical interface:
-
-**Step 1: Create a tools folder**
-
-Open File Explorer and create a folder, e.g., `C:\Tools` or `%USERPROFILE%\bin`.
-
-**Step 2: Copy the script**
-
-Copy `ctf.bat` into this folder.
-
-**Step 3: Open Environment Variables**
-
-Press `Win + R`, type `sysdm.cpl`, and press **Enter**.
-
-**Step 4: Edit PATH**
-
-1. Go to the **Advanced** tab
-2. Click **Environment Variables...**
-3. Under **User variables**, select `Path` and click **Edit...**
-4. Click **New** and add the path to your folder (e.g., `C:\Users\YourName\bin`)
-5. Click **OK** on all dialogs
-
-**Step 5: Restart your terminal**
-
-#### 4.2.3 PowerShell Profile Alias (Pro Tip)
-
-If you want `ctf` to behave exactly like a native PowerShell cmdlet, you can add it to your PowerShell profile.
-
-**Step 1: Open your profile**
-
-```powershell
-notepad $PROFILE
-```
-
-If the file doesn't exist, PowerShell will ask if you want to create it. Click "Yes".
-
-**Step 2: Add the alias function**
-
-Add this line to the profile:
-
-```powershell
-function ctf { & "$env:USERPROFILE\bin\ctf.bat" @args }
-```
-
-**Step 3: Save and restart PowerShell**
-
-Now you can use `ctf` just like any native command:
-
-```powershell
+# every PHP file under ./src into result.md
 ctf php ./src result.md
+
+# several extensions, modern option form
+ctf -e php,js,ts -o bundle.md ./src
+
+# everything the repository tracks or would track (honours .gitignore)
+ctf --git all -o context.md .
+
+# exactly 120k estimated tokens of Python, to the clipboard
+ctf -e py --token-budget 120000 -o - . | pbcopy        # macOS
+ctf -e py --token-budget 120000 -o - . | xclip         # Linux
+
+# what would be collected, and how big would it be?
+ctf --stats ./src
+ctf --dry-run -e py ./src | head
 ```
 
 ---
 
-## 5. Usage Reference
+## 4. Options reference
 
-### 5.1 Basic Syntax
+`ctf [OPTIONS] [EXTENSION] [SOURCE_DIR] [OUTPUT_FILE]`
 
-```bash
-# Linux / macOS
-ctf [EXTENSION] [SOURCE_DIR] [OUTPUT_FILE]
+The three positional arguments are kept for compatibility with v1–v3 and are
+equivalent to `--ext`, the source directory and `--output`. See
+[§12](#12-behaviour-worth-knowing) for how positional arguments are resolved
+when options are also present.
 
-# Windows
-ctf [EXTENSION] [SOURCE_DIR] [OUTPUT_FILE]
-```
+### Collection
 
-All three arguments are optional. The script applies sensible defaults for every omitted argument.
+| Option | Meaning |
+|:---|:---|
+| `-e`, `--ext LIST` | Comma-separated extensions, e.g. `php,js,sh`. Repeatable. A leading dot is optional, matching is case-insensitive. Omit to collect every text file. |
+| `-E`, `--exclude GLOB` | Exclude matching paths. Repeatable. `*` also crosses `/`; the bare file name is matched too. |
+| `-I`, `--include GLOB` | Keep only matching paths. Repeatable. |
+| `--exclude-dir NAME` | Exclude a directory name at any depth. Repeatable, comma-separated list accepted. |
+| `--no-default-excludes` | Do not apply the built-in VCS/dependency/build excludes. |
+| `--list-default-excludes` | Print the built-in exclude lists and exit. |
+| `-d`, `--max-depth N` | Maximum depth below `SOURCE_DIR` (`0` = unlimited). |
+| `-L`, `--follow` | Follow symlinks. Without it, symlinked files are counted as skipped and directory symlinks are not descended. |
+| `--max-size SIZE` | Skip files larger than `SIZE` (bytes or `K`/`M`/`G`/`T` suffix). |
+| `--min-size SIZE` | Skip files smaller than `SIZE`. |
+| `--files-from FILE` | Take the file list from `FILE` (`-` = stdin), newline- or NUL-separated, relative to `SOURCE_DIR`. |
+| `--git MODE` | Enumerate with git instead of find: `tracked` = `git ls-files --cached`; `all` = tracked + untracked, honouring `.gitignore`. |
+| `--binary MODE` | Binary detection: `auto` (default), `never`, `always`. |
 
-### 5.2 Arguments
+### Output
 
-| Argument      | Description                                                                                          | Default                                          |
-| ------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `EXTENSION`   | File extension to collect (`php`, `.js`, `sh`, etc.). Pass `""` to collect **all** non-binary files. | *(all files)*                                    |
-| `SOURCE_DIR`  | Root directory to scan recursively.                                                                  | Current directory (`.`)                          |
-| `OUTPUT_FILE` | Destination Markdown file path.                                                                      | `all-<EXT>-files.md` or `All-Project-Files.md`   |
+| Option | Meaning |
+|:---|:---|
+| `-o`, `--output FILE` | Destination. `-` writes to stdout. Default: `all-<ext>-files.md` or `All-Project-Files.md`. |
+| `-F`, `--format FMT` | `md` (default), `json`, `jsonl`, `txt`. |
+| `--heading-level N` | Markdown heading level for file paths (1–6, default 3). |
+| `--path-style STYLE` | `rel` (default) or `abs`. |
+| `--sort KEY` | `path` (default), `name`, `size`, `mtime`. `size`/`mtime` sort descending. |
+| `--title TEXT` | Document title. |
+| `--no-header` | Omit the metadata header. |
+| `--no-summary` | Omit the trailing summary. |
+| `--no-timestamp` | Omit the generation timestamp — makes the output byte-reproducible. |
+| `--toc` | Add a table of contents with GitHub-compatible anchors. |
+| `--metadata` | Add a per-file HTML comment: bytes, lines, `sha256/12`. |
+| `--line-numbers` | Prefix every content line with its number. |
+| `--lang-style STYLE` | `fenced` (default), `indent4`, `none`. |
+| `--strip-bom` | Remove a leading UTF-8 BOM from each file. |
+| `--truncate-lines N` | Keep at most `N` content lines per file (`0` = all). |
+| `--token-budget N` | Estimated token budget for the whole document. |
+| `--budget-action A` | What to do with a file that does not fit: `truncate` (default) or `drop`. |
+| `--dedup` | Emit byte-identical files once (requires `sha256sum` or `shasum`). |
 
-**Important Notes**:
-- The leading dot in extensions is optional — both `php` and `.php` are accepted.
-- Extensions are case-insensitive on Windows; case-sensitive on Linux (but normalized to lowercase internally).
-- If `OUTPUT_FILE` is omitted, the script generates a default name based on the extension.
+### Behaviour
 
-### 5.3 Options
+| Option | Meaning |
+|:---|:---|
+| `-n`, `--dry-run` | Print the selection as TSV (`path`, `lang`, `bytes`, `lines`, `sha256/12`); write nothing. |
+| `--stats` | Print `key=value` statistics and exit. |
+| `--strict` | Exit `4` when nothing was collected. |
+| `-c`, `--config FILE` | Read `VAR=VALUE` defaults from `FILE`. |
+| `--print-config` | Show the effective configuration and detected tools, then exit. |
+| `-q`, `--quiet` | Errors only on stderr. |
+| `-v`, `--verbose` | Debug output on stderr, including every skip and its reason. |
+| `--color WHEN` | `auto` (default), `always`, `never`. Colours go to stderr only. |
+| `-h`, `--help` | Help. |
+| `-V`, `--version` | Version. |
 
-| Option           | Description                         |
-| ---------------- | ----------------------------------- |
-| `-h`, `--help`   | Display usage information and exit  |
-| `-V`, `--version`| Display version number and exit     |
-| `--`             | End of options marker               |
+### Self-update
 
-### 5.4 Examples
+| Option | Meaning |
+|:---|:---|
+| `--check-update` | Query the remote and report; exit `0` when current, `3` when newer or unreachable. |
+| `--update` | Download and install the newer version over this script. |
+| `--update-channel CH` | `main` (default), `latest` (newest release tag) or any branch/tag. |
+| `--update-force` | Reinstall even when the version is identical. |
+| `--update-timeout S` | Per-request timeout in seconds (default 15). |
 
-#### Example 1: Collect all PHP files from a specific directory
+### Environment
 
-```bash
-ctf php ./src result.md
-```
+| Variable | Meaning |
+|:---|:---|
+| `CTF_CONFIG` | Default configuration file (overridden by `--config`). |
+| `NO_COLOR` | Any value disables colours. |
+| `SOURCE_DATE_EPOCH` | Unix timestamp used instead of “now” — reproducible builds. |
+| `CTF_UPDATE_CHANNEL` | Default update channel. |
+| `CTF_UPDATE_TIMEOUT` | Default per-request timeout, seconds. |
+| `CTF_UPDATE_BASE_URL` | Download root override: internal mirror, air-gapped artifact store, or a test server. |
+| `CTF_BINARY_SCAN_BYTES` | Bytes inspected by the fallback binary scan (default 8192). |
+| `CTF_BINARY_CTRL_PCT` | Control-byte percentage above which a file is binary (default 5). |
 
-This will:
-1. Scan the `./src` directory recursively
-2. Find all files with `.php` extension
-3. Write them to `result.md`
+---
 
-#### Example 2: Collect all JavaScript files from the current directory
+## 5. Output formats
 
-```bash
-ctf js
-```
+### Markdown (default)
 
-This will:
-1. Scan the current directory recursively
-2. Find all files with `.js` extension
-3. Write them to `all-js-files.md` (default output name)
+```markdown
+# Project Source Code Aggregate
 
-#### Example 3: Collect all non-binary files from a web root
+| Field | Value |
+|:------|:------|
+| Generated (UTC) | 2026-10-08T12:00:00Z |
+| Tool | ctf.sh v4.0.0 |
+| Source | /repo |
+| Extensions | php |
+| Candidates | 42 |
+| Collected | 37 |
 
-```bash
-ctf "" /var/www/myproject project-snapshot.md
-```
+---
 
-This will:
-1. Scan `/var/www/myproject` recursively
-2. Find **all** files (no extension filter)
-3. Skip binary files automatically
-4. Write them to `project-snapshot.md`
+### `src/Api/Client.php`
 
-#### Example 4: Collect everything from the current directory
-
-```bash
-ctf
-```
-
-This will:
-1. Scan the current directory recursively
-2. Find all files
-3. Skip binary files automatically
-4. Write them to `All-Project-Files.md`
-
-#### Example 5: Pipe the output path into another tool
-
-```bash
-ctf php ./app context.md && wc -l context.md
-```
-
-This will:
-1. Collect all PHP files from `./app` into `context.md`
-2. Count the lines in the output file
-
-#### Example 6: Use with LLM via command line
-
-```bash
-ctf php ./src context.md && cat context.md | llm "Review this code for security issues"
-```
-
-#### Example 7: Use in a CI/CD pipeline
-
-```bash
-#!/bin/bash
-# collect-code.sh
-ctf "" ./src code-dump.md
-echo "Code dump generated: $(wc -l < code-dump.md) lines"
+```php
+<?php
+...
 ```
 
 ---
 
-## 6. Advanced Usage
+## Summary
 
-### 6.1 Integration with LLMs
+| Metric | Value |
+|:-------|------:|
+| Candidates | 42 |
+| Collected | 37 |
+| Skipped | 5 |
+| Source bytes | 184320 (180.00 KiB) |
+| Estimated tokens | 46080 |
 
-`ctf` is specifically designed for LLM context engineering. Here are some best practices:
+**Skip reasons**
 
-#### 6.1.1 Claude / Anthropic
+| Reason | Count |
+|:-------|------:|
+| binary | 2 |
+| excluded-dir | 3 |
+```
+
+The skip-reason table is the part that saves time: when a file you expected is
+missing, the document itself tells you why.
+
+### JSON / JSONL
+
+`--format json` produces one object; `--format jsonl` produces one object per
+line (streamable, `jq`-friendly):
+
+```json
+{"path":"src/Api/Client.php","lang":"php","bytes":4096,"lines":120,"sha256":"a1b2…","content":"<?php\n…"}
+```
+
+`content` is JSON-escaped; control characters other than `\t`, `\n` and `\r`
+are removed, since JSON cannot carry them unescaped and source text never
+contains them.
+
+### Plain text
+
+`--format txt` emits `===== path (lang, size) =====` separators and no Markdown
+at all — convenient for `diff`, `grep` and diff-based review tools.
+
+---
+
+## 6. Controlling what gets collected
+
+**Default excludes.** VCS metadata (`.git`, `.svn`, `.hg`), dependency trees
+(`node_modules`, `vendor`, `.venv`, `__pycache__`), build output (`build`,
+`dist`, `out`, `target`, `obj`, `release`), caches, IDE directories and
+generated files (`*.min.js`, `*.map`, lock files, `*.pyc`, shared objects,
+executables). Excluded directories are pruned by `find` before descent, so
+large `node_modules` trees cost nothing. List them with
+`--list-default-excludes`, disable with `--no-default-excludes`.
+
+**The source root itself is never excluded.** A tree rooted at `./dist`,
+`./build` or `./out` is scanned normally — only directories *below* the root
+are matched against the exclude list.
+
+**Patterns.** Globs use bash pattern syntax, where `*` also crosses `/`:
 
 ```bash
-# Collect all Python files
-ctf py ./src context.md
-
-# Use with Claude API
-curl -X POST https://api.anthropic.com/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -d "{
-    \"model\": \"claude-3-5-sonnet-20241022\",
-    \"max_tokens\": 4096,
-    \"messages\": [{
-      \"role\": \"user\",
-      \"content\": \"$(cat context.md)\n\nPlease review this code for bugs.\"
-    }]
-  }"
+ctf -E 'tests/*' -E '*.md' -E 'docs/**' -o ctx.md .
+ctf -I 'src/**' -o src-only.md .
+ctf --exclude-dir legacy,tmp -o clean.md .
 ```
 
-#### 6.1.2 OpenAI / GPT-4
+**Git-aware selection.** `--git all` is usually what you want inside a
+repository: it uses the index plus untracked-but-not-ignored files, so
+`.gitignore` does the filtering for you and build output never appears.
+
+**Symlinks** are skipped by default and reported as `skip_symlink` — never
+silently. Pass `-L` to follow them.
+
+---
+
+## 7. Fitting a token budget
+
+The estimate is `ceil(bytes / 4)`, which is conservative for source code.
 
 ```bash
-# Collect all TypeScript files
-ctf ts ./src context.md
-
-# Use with OpenAI API
-curl -X POST https://api.openai.com/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $OPENAI_API_KEY" \
-  -d "{
-    \"model\": \"gpt-4\",
-    \"messages\": [{
-      \"role\": \"user\",
-      \"content\": \"$(cat context.md)\n\nPlease refactor this code.\"
-    }]
-  }"
+ctf -e py --token-budget 120000 --stats .        # will it fit?
+ctf -e py --token-budget 120000 -o ctx.md .      # default: truncate to fit
+ctf -e py --token-budget 120000 --budget-action drop -o ctx.md .
 ```
 
-#### 6.1.3 Local LLMs (Ollama)
+Files are taken in `--sort` order until the budget is exhausted. With
+`--budget-action truncate` (default) the file that does not fit whole is cut at
+a line boundary and marked with an HTML comment; with `drop` it is skipped and
+counted in `budget_dropped`. Both are reported in the summary.
+
+Combine with `--sort size` to prioritise the largest files, or with
+`--max-size 64K` to keep one generated monster from eating the window.
+
+---
+
+## 8. Self-update
 
 ```bash
-# Collect all Go files
-ctf go ./src context.md
-
-# Use with Ollama
-ollama run llama3 "$(cat context.md)\n\nPlease explain this code."
+ctf --check-update          # local=4.0.0 remote=4.0.1 channel=main status=newer
+ctf --update                # installs 4.0.1, keeps ctf.sh.bak-<timestamp>
+ctf --update --update-channel latest
 ```
 
-### 6.2 Integration with Git
+Safety properties, each covered by `tests/test_update.sh`:
 
-#### 6.2.1 Collect files changed in the last commit
+- The download is validated **before** anything is overwritten: minimum size,
+  a leading shebang, and a clean `bash -n`. An HTML error page, a truncated
+  download or a syntactically broken script is refused and the installed copy
+  is left untouched.
+- A timestamped backup is created first; if the write fails, the previous
+  version is restored.
+- The new bytes are written **through the existing inode**, so ownership, mode
+  and hard links survive.
+- Sibling `VERSION`, `ctf.ps1` and `ctf.bat` files are refreshed only if they
+  already exist next to the script.
+- Transport fallback: `curl` → `wget` → `python3` → `perl` → bash `/dev/tcp`.
+  The last one has no TLS, and says so instead of failing mysteriously.
+- `CTF_UPDATE_BASE_URL` points the whole flow at a mirror (or a local test
+  server), which is how the test suite exercises it without internet access.
+
+---
+
+## 9. Exit codes
+
+| Code | Meaning |
+|:---|:---|
+| `0` | Success. |
+| `1` | Runtime error: I/O failure, permissions, unexpected state. |
+| `2` | Usage error: unknown option, invalid value, unreadable source. |
+| `3` | Update or network error (`--check-update`, `--update`). |
+| `4` | Nothing collected and `--strict` was given. |
+
+`--check-update` uses `3` for “a newer version exists”, so it can be used
+directly as a CI gate:
 
 ```bash
-# Get list of changed files
-git diff --name-only HEAD~1 HEAD > changed-files.txt
-
-# Collect each file
-while read file; do
-    ctf "" "$(dirname "$file")" "review-$(basename "$file").md"
-done < changed-files.txt
-```
-
-#### 6.2.2 Collect files in a feature branch
-
-```bash
-# Get list of files changed in feature branch vs main
-git diff --name-only main...feature-branch > feature-files.txt
-
-# Collect all changed files
-ctf "" . feature-review.md
-```
-
-### 6.3 Integration with CI/CD
-
-#### 6.3.1 GitHub Actions
-
-```yaml
-name: Code Dump
-on: [push]
-
-jobs:
-  collect:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install ctf
-        run: |
-          chmod +x ctf.sh
-          sudo ln -s $(pwd)/ctf.sh /usr/local/bin/ctf
-      
-      - name: Collect code
-        run: ctf "" ./src code-dump.md
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: code-dump
-          path: code-dump.md
-```
-
-#### 6.3.2 GitLab CI
-
-```yaml
-code-dump:
-  script:
-    - chmod +x ctf.sh
-    - ./ctf.sh "" ./src code-dump.md
-  artifacts:
-    paths:
-      - code-dump.md
-```
-
-### 6.4 Performance Optimization
-
-For very large codebases (10,000+ files), consider these optimizations:
-
-#### 6.4.1 Limit file types
-
-Instead of collecting all files, target specific extensions:
-
-```bash
-# Collect only source files, skip assets
-ctf php ./src code.md
-ctf js ./src code.md
-ctf py ./src code.md
-```
-
-#### 6.4.2 Exclude directories
-
-Modify the find command to exclude node_modules, vendor, etc.:
-
-```bash
-# Create a custom version with exclusions
-find ./src -type f -name "*.php" \
-  -not -path "*/node_modules/*" \
-  -not -path "*/vendor/*" \
-  -not -path "*/.git/*" \
-  -print0 | sort -z
-```
-
-#### 6.4.3 Parallel processing
-
-For extremely large codebases, you can split the work:
-
-```bash
-# Split files into chunks
-find ./src -type f -name "*.php" -print0 | \
-  xargs -0 -n 100 -P 4 ./ctf.sh php
+ctf --check-update && echo "up to date" || echo "update available"
 ```
 
 ---
 
-## 7. Technical Deep Dive
+## 10. Windows
 
-### 7.1 Function Reference
+`ctf.bat` is a thin launcher; the implementation lives in `ctf.ps1`
+(Windows PowerShell 5.1+ or PowerShell 7+). Both are CRLF in the repository —
+enforced by `.gitattributes`, because LF line endings break labels and `goto`
+in `cmd.exe`.
 
-#### 7.1.1 `map_lang()`
-
-**Purpose**: Maps file extensions to Markdown fenced-block language identifiers.
-
-**Signature**: `map_lang(extension: string) -> string`
-
-**Behavior**:
-1. Converts the extension to lowercase
-2. Performs a case-insensitive lookup across 50+ extensions
-3. Returns the correct Markdown language identifier
-4. Unknown extensions fall through to their raw lowercase form
-
-**Example**:
-```bash
-map_lang "PHP"    # Returns: php
-map_lang "js"     # Returns: javascript
-map_lang "unknown" # Returns: unknown
+```bat
+ctf.bat php C:\projects\src C:\out\bundle.md
+ctf.bat --check-update
 ```
-
-#### 7.1.2 `is_binary()`
-
-**Purpose**: Detects whether a file is binary or text.
-
-**Signature**: `is_binary(file: string) -> boolean`
-
-**Behavior**:
-1. If `file` utility is available, queries `--mime-encoding` for the string `binary`
-2. Otherwise, scans the first 8 KiB for null bytes
-3. Returns 0 (true) if binary, 1 (false) if text
-
-**Example**:
-```bash
-is_binary "image.png"  # Returns: 0 (true)
-is_binary "script.sh"  # Returns: 1 (false)
-```
-
-#### 7.1.3 `abspath()`
-
-**Purpose**: Resolves a relative path to an absolute path without requiring GNU `realpath`.
-
-**Signature**: `abspath(path: string, must_exist: boolean) -> string`
-
-**Behavior**:
-1. Splits the path into directory and filename
-2. Changes to the directory and captures `pwd`
-3. Reconstructs the absolute path
-4. If `must_exist` is true, returns 1 if the directory doesn't exist
-
-**Example**:
-```bash
-abspath "./src/file.php"           # Returns: /current/dir/src/file.php
-abspath "./nonexistent" "must_exist" # Returns: 1 (error)
-```
-
-### 7.2 Environment Variables
-
-The script respects the following environment variables:
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `PATH`   | Used to locate utilities | System default |
-| `LC_ALL` | Locale settings | System default |
-| `HOME`   | User home directory | System default |
-
-### 7.3 Error Handling
-
-The script uses `set -euo pipefail` for strict error handling:
-
-- `set -e`: Exit immediately if a command exits with a non-zero status
-- `set -u`: Treat unset variables as an error
-- `set -o pipefail`: Return value of a pipeline is the status of the last command to exit with a non-zero status
-
-**Error Categories**:
-1. **Fatal errors**: Missing source directory, unwritable output directory → script exits with error message
-2. **Warnings**: Unreadable files, binary files → logged but processing continues
-3. **Info**: Progress updates, final summary → logged to stderr
-
----
-
-## 8. Troubleshooting
-
-### 8.1 Common Issues
-
-#### Issue 1: `Source directory '...' does not exist`
-
-**Symptoms**:
-```
-[ERROR] Source directory '/path/to/dir' does not exist.
-```
-
-**Causes**:
-- Typo in the path
-- Directory was deleted or moved
-- Insufficient permissions to read the directory
-
-**Solutions**:
-```bash
-# Verify the path exists
-ls -la /path/to/dir
-
-# Check permissions
-ls -ld /path/to/dir
-
-# Use absolute path instead of relative
-ctf php /absolute/path/to/src result.md
-```
-
-#### Issue 2: `Output directory '...' is not writable`
-
-**Symptoms**:
-```
-[ERROR] Output directory '/path/to/output' is not writable.
-```
-
-**Causes**:
-- Output directory is read-only
-- Insufficient permissions
-- Disk is full
-
-**Solutions**:
-```bash
-# Check permissions
-ls -la $(dirname output.md)
-
-# Change permissions if needed
-chmod u+w /path/to/output
-
-# Check disk space
-df -h /path/to/output
-```
-
-#### Issue 3: `Permission denied` on script execution
-
-**Symptoms**:
-```
-bash: ./ctf.sh: Permission denied
-```
-
-**Causes**:
-- Script doesn't have execute permission
-
-**Solutions**:
-```bash
-# Set the executable bit
-chmod 0755 ctf.sh
-
-# Or run with bash explicitly
-bash ctf.sh php ./src result.md
-```
-
-#### Issue 4: No files collected (0 candidates)
-
-**Symptoms**:
-```
-[INFO]  Found 0 candidate file(s).
-```
-
-**Causes**:
-- Wrong extension specified
-- No files with that extension exist
-- Files are in a different directory
-
-**Solutions**:
-```bash
-# Verify files exist
-find . -name "*.php" | head
-
-# Check extension case sensitivity (Linux)
-ls -la src/ | grep -i php
-
-# Use correct extension
-ctf php ./src result.md  # Not PHP
-```
-
-#### Issue 5: Output file is empty (only header)
-
-**Symptoms**: Output file contains only the metadata header, no file contents.
-
-**Causes**:
-- All matching files are binary
-- All matching files are unreadable
-- All matching files were skipped
-
-**Solutions**:
-```bash
-# Check which files are being skipped
-ctf "" ./project output.md 2>&1 | grep WARN
-
-# Check file permissions
-ls -la src/
-
-# Verify files are text
-file src/*
-```
-
-### 8.2 Binary File Handling
-
-The script silently skips files identified as binary. To see which files are being skipped, inspect the `[WARN]` lines in stderr output:
-
-```bash
-ctf "" ./project output.md 2>&1 | grep WARN
-```
-
-**Expected output**:
-```
-[WARN]  Skip (binary):     src/images/logo.png
-[WARN]  Skip (binary):     src/assets/icon.jpg
-[WARN]  Skip (unreadable): src/config/secrets.env
-```
-
-### 8.3 Windows-Specific Issues
-
-#### Issue 1: PowerShell Execution Policy
-
-**Symptoms**:
-```
-ctf.bat : File C:\Users\...\ctf.ps1 cannot be loaded because running scripts is disabled on this system.
-```
-
-**Solution**:
-The BAT wrapper already uses `-ExecutionPolicy Bypass`, so this shouldn't happen. If it does, run:
 
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\ctf.ps1 -Ext php,js -Source .\src -Output bundle.md
 ```
 
-#### Issue 2: PATH Not Updated
-
-**Symptoms**:
-```
-'ctf' is not recognized as an internal or external command
-```
-
-**Solution**:
-1. Verify the PATH was updated: `echo $env:PATH`
-2. Restart your terminal
-3. Verify the script exists: `dir $env:USERPROFILE\bin\ctf.bat`
+The PowerShell port implements the collection, filtering, binary detection,
+fence selection and Markdown/JSON output. Options that depend on POSIX
+semantics (`--files-from -` from stdin, symlink modes) behave as documented in
+`ctf.ps1 -Help`.
 
 ---
 
-## 9. Contributing
+## 11. Configuration file
 
-Contributions are welcome! Feel free to open pull requests, file bug reports, or suggest new features.
+```ini
+# ~/.ctfrc — plain VAR=VALUE, no code
+CTF_FORMAT=md
+CTF_SORT=path
+CTF_TOKEN_BUDGET=120000
+CTF_DEFAULT_EXCLUDES=1
+CTF_TITLE="Project sources"
+```
 
-### 9.1 Development Guidelines
+```bash
+ctf -c ~/.ctfrc -e py .
+CTF_CONFIG=~/.ctfrc ctf -e py .
+ctf --print-config .        # what is actually in effect, and why
+```
 
-1. **Follow the existing code style**:
-   - Use `set -euo pipefail` for strict error handling
-   - Use `readonly` constants for configuration
-   - Use named functions instead of inline code
-   - Add `[WARN]` / `[INFO]` / `[ERROR]` log calls for all user-visible state changes
+The file is treated strictly as data:
 
-2. **Keep the script dependency-free**:
-   - Use only standard GNU utilities on Linux
-   - Use only built-in PowerShell on Windows
-   - No Python, Node.js, or external packages
-
-3. **Update the language mapping table**:
-   - Add new extensions to `map_lang()` (Bash) and `Get-LanguageTag` (PowerShell)
-   - Test with real files to ensure correct highlighting
-
-4. **Test on all platforms**:
-   - Bash 4.2+ on Linux (Debian, Ubuntu, CentOS)
-   - Bash 4.2+ on macOS
-   - PowerShell 5.1+ on Windows 10/11
-
-5. **Write tests**:
-   - Add test cases for new features
-   - Test edge cases (empty directories, binary files, symlinks)
-
-### 9.2 Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes
-4. Test thoroughly on all platforms
-5. Commit your changes: `git commit -m 'Add amazing feature'`
-6. Push to the branch: `git push origin feature/amazing-feature`
-7. Open a Pull Request
-
-### 9.3 Bug Reports
-
-When filing a bug report, please include:
-- Operating system and version
-- Bash/PowerShell version
-- Full error message
-- Steps to reproduce
-- Expected vs actual behavior
+- only variables on the `CTF_*` whitelist are accepted; anything else is
+  ignored with a warning;
+- values are never passed to `eval` — there is no `eval` in the bash code;
+- values containing `$(`, backticks, `;`, `|`, `&`, `<`, `>` or `$` are
+  rejected;
+- a group- or world-writable config is **ignored** with a warning, because
+  such a file could be planted by another local user.
 
 ---
 
-## 10. License & Author
+## 12. Behaviour worth knowing
 
-### 10.1 License
+**Positional arguments** fill the slots `EXTENSION`, `SOURCE_DIR`,
+`OUTPUT_FILE` in that order, but only slots that no option has already filled,
+and an argument naming an existing directory is always taken as `SOURCE_DIR`:
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+| Invocation | Extension | Source | Output |
+|:---|:---|:---|:---|
+| `ctf php ./src out.md` | php | ./src | out.md |
+| `ctf -e php ./src` | php | ./src | default |
+| `ctf ./src` | — | ./src | default |
+| `ctf -e php -o out.md ./src` | php | ./src | out.md |
 
-**MIT License Summary**:
-- ✅ Commercial use
-- ✅ Modification
-- ✅ Distribution
-- ✅ Private use
-- ❌ Liability
-- ❌ Warranty
+**Binary detection** uses two signals, both false-positive-free for real text:
+a NUL byte in the first 8 KiB, or more than 5 % C0 control bytes (excluding
+`\t \n \v \f \r`). High bytes are *not* evidence of binary — otherwise every
+non-English source file would be dropped. When `file(1)` is present its verdict
+is used first. Known limitation: a file under ~1 KiB of high-entropy data with
+no NUL and very few control bytes can pass as text; use `--ext` or
+`--binary always` when that matters.
 
-### 10.2 Author
+**Fences are computed per file.** A fenced block is closed only by a line
+consisting of nothing but fence characters (optionally indented up to 3
+spaces), so `ctf` finds the longest such run in the file and emits a fence one
+character longer — choosing backticks or tildes, whichever is shorter. Content
+is therefore never able to break out of its block.
 
-**Mikhail Deynekin** — Senior Software Engineer & AI Enthusiast
+**A file without a trailing newline** still gets its closing fence on a line of
+its own.
 
-- 🌐 **Website**: [Deynekin.com](https://deynekin.com)
-- 📧 **Email**: [Mikhail@Deynekin.com](mailto:Mikhail@Deynekin.com)
-- 🐙 **GitHub**: [@paulmann](https://github.com/paulmann)
+**File names** may contain any byte except `/` and NUL, and `ctf` handles
+spaces, quotes, backticks, `$`, `;`, tabs and newlines — verified by
+`tests/test_safety.sh`, which also asserts that no payload inside a file name
+is ever executed. Names containing CR/LF/TAB are flattened *for display only*
+(headings, TOC, TSV); content is copied byte-for-byte.
 
-### 10.3 Getting Help
+**Reproducibility.** With `--no-timestamp` (or `SOURCE_DATE_EPOCH`), identical
+input yields byte-identical output, so a snapshot can be committed and diffed.
 
-- 📖 **Documentation**: Read this README thoroughly
-- 🐛 **Bug Reports**: [Open an issue](https://github.com/paulmann/ctf-collect-to-file/issues/new)
-- 💡 **Feature Requests**: [Request a feature](https://github.com/paulmann/ctf-collect-to-file/issues/new)
-- 💬 **Discussions**: [Join the conversation](https://github.com/paulmann/ctf-collect-to-file/discussions)
+**The output file is never collected into itself**, even when it lives inside
+the scanned tree; the skip is reported as `skip_output_file`.
 
-### 10.4 Support the Project
-
-If you find this tool useful, please consider:
-- ⭐ Starring the repository on GitHub
-- 🐛 Reporting bugs you encounter
-- 💡 Suggesting new features
-- 📣 Sharing the tool with your colleagues
+**Atomic writes.** The document is assembled in temporary files next to the
+destination and moved into place; a symlinked destination is written through,
+so the link is not replaced by a regular file. Temporary files are removed by
+an EXIT trap.
 
 ---
 
+## 13. Development
+
+```bash
+make test          # full suite: 8 files, 243 assertions, no network, no root
+make lint          # shellcheck --severity=style on ctf.sh and tests
+make check         # lint + test
+make install       # install ctf.sh, ctf.ps1, ctf.bat
+make uninstall
+```
+
+Or directly:
+
+```bash
+tests/run_tests.sh                 # everything
+tests/run_tests.sh --filter binary # one file
+tests/run_tests.sh --verbose       # print every passing assertion
+tests/run_tests.sh --keep-tmp      # keep the scratch directory
+CTF=/path/to/other/ctf.sh tests/run_tests.sh   # test a different copy
+```
+
+Layout:
+
+```
+ctf.sh             the tool (bash 4.2+, 2222 lines, shellcheck-clean at style level)
+ctf.ps1            Windows implementation (PowerShell 5.1+, 1139 lines)
+ctf.bat            Windows launcher (68 lines, CRLF)
+VERSION            single source of truth for the version, read by --update
+tests/             8 test files, 243 assertions; sources ctf.sh, no framework
+  run_tests.sh     runner (--filter, --verbose, --keep-tmp)
+  lib.sh           assertions, fixtures, ctf_run/ctf_stats helpers
+  test_cli.sh      options, positional forms, exit codes
+  test_collect.sh  extensions, excludes, symlinks, depth, size, git, --files-from
+  test_binary.sh   binary detection: determinism and false positives
+  test_output.sh   document structure, fences, formats, TOC, budget, BOM
+  test_safety.sh   atomic writes, hostile file names, config file, temp hygiene
+  test_update.sh   self-update end-to-end against a local HTTP server
+  test_parity.sh   ctf.sh vs ctf.ps1: byte-identical output and CLI parity
+  test_meta.sh     versions, shellcheck, bash 4.2 portability, docs consistency
+docs/ANALYSIS.md   audit of v3.1.0: 20 defects with reproduction commands
+docs/DECISIONS.md  20 design decisions: context, choice, cost
+install.sh         POSIX installer (no make required)
+Makefile           install / uninstall / test / lint / check / dist
+.github/workflows/ci.yml
+```
+
+CI runs shellcheck, `bash -n`, the suite (Ubuntu and macOS), version
+consistency across `VERSION`/`ctf.sh`/`README`/`CHANGELOG`, a PowerShell parse
+check of `ctf.ps1`, and line-ending policy (`.bat`/`.ps1` CRLF, `.sh` LF).
+When `pwsh` is present — it is on `ubuntu-latest` — `test_parity.sh` also
+compares the two implementations byte-for-byte.
+
+**Linting policy** (see `docs/DECISIONS.md`, DR-18): `ctf.sh` and `install.sh`
+must be clean at `--severity=style`; tests must be clean at
+`--severity=warning`; deliberate suppressions carry an explanatory directive
+instead of a global `.shellcheckrc`.
+
+---
+
+## 14. Performance
+
+Metadata reads are batched — sizes via `stat --printf`, binary classification
+via `grep -IlZ`, and lines/fence-runs/byte-sums via one `awk` pass per ~200
+files. The only per-file process left is the `cat` that copies content, and
+hot-path helpers return through globals instead of command substitution, so no
+subshell is forked per file.
+
+Measured in a container, 2 CPU:
+
+| Tree | v3.1.0 | v4.0.0 |
+|:---|---:|---:|
+| 2 000 small JS files | 19.0 s | 9.0 s |
+| 600 files / 13 MiB | — | 2.7 s |
+
+Measured in a container with 2 CPU. Batched output is byte-identical to the
+unbatched implementation, which the determinism tests assert.
+
+Batched output is byte-identical to the unbatched implementation (asserted by
+the determinism tests).
+
+---
+
+## 15. License
+
+MIT — see [LICENSE](LICENSE).
+
+Author: Mikhail Deynekin — <Mikhail@Deynekin.com> — https://deynekin.com

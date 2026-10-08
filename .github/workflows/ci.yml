@@ -1,0 +1,109 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: shellcheck --severity=style
+        run: |
+          shellcheck --severity=style \
+            ctf.sh install.sh tests/lib.sh tests/run_tests.sh tests/test_*.sh
+
+  bash-syntax:
+    name: bash -n (all scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: for f in ctf.sh install.sh tests/*.sh; do bash -n "$f" || exit 1; done
+
+  tests:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show environment
+        run: |
+          bash --version | head -1
+          awk -W version 2>&1 | head -1 || awk --version 2>&1 | head -1 || true
+          command -v file shellcheck sha256sum git || true
+      # Совместимость с bash 4.2 проверяется статически (test_meta.sh ищет
+      # local -n, wait -n, mapfile -d, ${v@Q}); ставить bash 4.2 в CI мы
+      # не обещаем и не имитируем это матрицей.
+      - name: Run the test suite
+        run: bash tests/run_tests.sh --verbose
+        env:
+          # pwsh присутствует на ubuntu-latest; при его наличии выполняется
+          # tests/test_parity.sh (побайтовое сравнение ctf.sh и ctf.ps1).
+          PWSH: ${{ runner.os == 'Linux' && '/usr/bin/pwsh' || '' }}
+          DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 1
+
+  version-consistency:
+    name: VERSION == script == README == CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check
+        run: |
+          set -euo pipefail
+          v="$(tr -d ' \t\r\n' < VERSION)"
+          grep -q "readonly CTF_SCRIPT_VERSION='${v}'" ctf.sh \
+            || { echo "ctf.sh does not declare ${v}"; exit 1; }
+          grep -q -- "-- ${v}" CHANGELOG.md \
+            || grep -q "\[${v}\]" CHANGELOG.md \
+            || { echo "CHANGELOG.md has no entry for ${v}"; exit 1; }
+          grep -q "version-${v}" README.md \
+            || { echo "README badge does not show ${v}"; exit 1; }
+          echo "version ${v} is consistent"
+
+  powershell:
+    name: ctf.ps1 syntax + parity with ctf.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse ctf.ps1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./ctf.ps1).Path, [ref]$tokens, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+          Write-Host "ctf.ps1 parsed with no syntax errors"
+      - name: Parity suite (bash vs PowerShell)
+        shell: bash
+        run: |
+          export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+          PWSH="$(command -v pwsh)" bash tests/test_parity.sh
+
+  line-endings:
+    name: line endings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .bat/.ps1 must be CRLF, .sh must be LF
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in ctf.bat ctf.ps1; do
+            [ -f "$f" ] || continue
+            grep -q $'\r' "$f" || { echo "$f: expected CRLF"; fail=1; }
+          done
+          for f in ctf.sh install.sh tests/*.sh Makefile; do
+            [ -f "$f" ] || continue
+            if grep -q $'\r' "$f"; then echo "$f: unexpected CRLF"; fail=1; fi
+          done
+          exit "$fail"

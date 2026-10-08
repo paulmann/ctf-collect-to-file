@@ -1,0 +1,16 @@
+# Результат работы самого инструмента
+all-*-files.md
+All-Project-Files.md
+*.ctf.md
+.ctf-*.md
+
+# Резервные копии, создаваемые --update
+*.bak-*
+*.bak
+
+# Временные файлы прогонов
+/tests/.tmp/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
