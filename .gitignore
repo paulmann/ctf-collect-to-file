@@ -14,3 +14,6 @@ All-Project-Files.md
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Локальный индекс RAGRAF — производные данные, не часть проекта
+.ragraf/
