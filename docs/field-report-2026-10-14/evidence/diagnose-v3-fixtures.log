@@ -1,0 +1,18 @@
+diagnose evidence/ctf-adv-v3.md: 13 sections — intact: 8, BROKEN: 5, no-block: 0
+  [BROKEN] fence3_pure.md: 2 line(s) leaked outside the fence (~44 B in section); first leaked: 'after'
+  [BROKEN] fence4_pure.md: 4 line(s) leaked outside the fence (~51 B in section); first leaked: 'quad line'
+  [BROKEN] fence_indented.md: 8 line(s) leaked outside the fence (~57 B in section); first leaked: 'b'
+  [BROKEN] meta_spoof.md: 4 line(s) leaked outside the fence (~114 B in section); first leaked: 'spoiled fence'
+  [BROKEN] mixed.md: 6 line(s) leaked outside the fence (~107 B in section); first leaked: '```mermaid'
+  [intact] binary.bin
+  [intact] bom.txt
+  [intact] crlf.txt
+  [intact] inline_backticks.md
+  [intact] no_trailing_nl.txt
+  [intact] sub dir/файл with space.md
+  [intact] tildes.md
+  [intact] unicode_emoji.py
+Verdict: pre-v4 fixed-rank fencing — bytes are present in the document but NOT
+recoverable by conformant parsers for the BROKEN files. Re-generate with ctf v4+
+(dynamic fence rank) and verify with this tool; or recover from the original sources.
+exit=1

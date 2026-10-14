@@ -1,0 +1,15 @@
+  [ok  ] counters: Candidates=13 Collected=12 Skipped=1 sections=12
+  [ok  ] bom.txt: verified via meta:plus-trailing-nl
+  [ok  ] crlf.txt: verified via meta:plus-trailing-nl
+  [ok  ] fence3_pure.md: verified via meta:plus-trailing-nl
+  [ok  ] fence4_pure.md: verified via meta:plus-trailing-nl
+  [ok  ] fence_indented.md: verified via meta:plus-trailing-nl
+  [ok  ] inline_backticks.md: verified via meta:plus-trailing-nl
+  [ok  ] meta_spoof.md: verified via meta:plus-trailing-nl
+  [ok  ] mixed.md: verified via meta:plus-trailing-nl
+  [ok  ] no_trailing_nl.txt: verified via meta:exact
+  [ok  ] sub dir/файл with space.md: verified via meta:plus-trailing-nl
+  [ok  ] tildes.md: verified via meta:plus-trailing-nl
+  [ok  ] unicode_emoji.py: verified via meta:plus-trailing-nl
+verify: 13 file(s) verified, 0 problem(s), 12 section(s) total
+exit=0

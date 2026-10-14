@@ -1,0 +1,6 @@
+diagnose /tmp/arena/tenants/2ac01412-00e0-452b-8d75-2c08c7a303a2/sessions/40c2cb75-3704-4180-9e22-3b151d41acec/workspace/uploads/All-Project-Files.md: 4 sections — intact: 4, BROKEN: 0, no-block: 0
+  [intact] fix_toc.py
+  [intact] probe_mdscribe_example.py
+  [intact] proposed_req_additions.py
+  [intact] verify_commands_template.py
+exit=0
