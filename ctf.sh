@@ -7,7 +7,7 @@
 #   assembling LLM context, code-review bundles and auditable source snapshots.
 #
 # Author:   Mikhail Deynekin <Mikhail@Deynekin.com> | https://deynekin.com
-# Version:  4.0.0   (must match the VERSION file — enforced by tests/test_meta.sh)
+# Version:  4.1.0   (must match the VERSION file — enforced by tests/test_meta.sh)
 # License:  MIT
 #
 # Compatibility:
@@ -53,7 +53,7 @@ readonly EX_OK=0 EX_RUNTIME=1 EX_USAGE=2 EX_UPDATE=3 EX_EMPTY=4
 
 CTF_SCRIPT_NAME="${BASH_SOURCE[0]##*/}"
 readonly CTF_SCRIPT_NAME
-readonly CTF_SCRIPT_VERSION='4.0.0'
+readonly CTF_SCRIPT_VERSION='4.1.0'
 readonly CTF_REPO_OWNER='paulmann'
 readonly CTF_REPO_NAME='ctf-collect-to-file'
 # CTF_UPDATE_BASE_URL overrides the download root: use it for an internal

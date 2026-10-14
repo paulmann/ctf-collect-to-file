@@ -20,7 +20,7 @@ rem # Exit codes are forwarded from ctf.ps1:
 rem #   0 success | 1 runtime | 2 usage | 3 update/network | 4 nothing collected
 rem #   90 launcher error (ctf.ps1 or PowerShell not found)
 rem #
-rem # Version: 4.0.0   Author: Mikhail Deynekin <Mikhail@Deynekin.com>
+rem # Version: 4.1.0   Author: Mikhail Deynekin <Mikhail@Deynekin.com>
 rem # License: MIT
 rem ###########################################################################
 

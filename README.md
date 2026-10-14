@@ -5,7 +5,7 @@ document, preserving paths relative to the source root. Built for assembling
 LLM context, code-review bundles and auditable source snapshots.
 
 <p>
-  <img src="https://img.shields.io/badge/version-4.0.0-brightgreen" alt="version 4.0.0">
+  <img src="https://img.shields.io/badge/version-4.1.0-brightgreen" alt="version 4.1.0">
   <img src="https://img.shields.io/badge/bash-4.2%2B-blue" alt="bash 4.2+">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="Linux / macOS">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6" alt="Windows 10/11">
@@ -73,7 +73,7 @@ sudo make install PREFIX=/usr/local
 Verify:
 
 ```bash
-ctf --version      # ctf v4.0.0
+ctf --version      # ctf v4.1.0
 ctf --print-config .
 ```
 
@@ -329,8 +329,8 @@ Combine with `--sort size` to prioritise the largest files, or with
 ## 8. Self-update
 
 ```bash
-ctf --check-update          # local=4.0.0 remote=4.0.1 channel=main status=newer
-ctf --update                # installs 4.0.1, keeps ctf.sh.bak-<timestamp>
+ctf --check-update          # local=4.1.0 remote=4.2.0 channel=main status=newer
+ctf --update                # installs 4.2.0, keeps ctf.sh.bak-<timestamp>
 ctf --update --update-channel latest
 ```
 

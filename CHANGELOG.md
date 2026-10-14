@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+All notable changes to this project are documented in this file.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [4.1.0] — 2026-10-14
+
+Windows installation and agent documentation, a field report from an external
+run of this tool, and the version bump. The collection engine behaves exactly
+as in 4.0.0.
 
 ### Added — Windows installation and agent documentation
 
@@ -38,16 +46,35 @@
   measured option-name parity table between `ctf.sh` and `ctf.ps1`, and the
   line-ending/lint constraints.
 
+### Added — field report from an external run
+
+- **`docs/field-report-2026-10-14/`** — an external field report published as
+  received, with reproduction tooling and raw evidence. It documents a
+  packaging incident (a delivery was packed with an older build), independently
+  re-verifies 4.0.0 against a 13-file adversarial battery, and states the
+  remaining gaps as requirements R1–R9. Two findings reproduce on a clean clone
+  and are **still open in this release**: `ctf.sh` and `install.sh` lack the
+  executable bit in the index, and `shellcheck --severity=style` reports
+  SC2015 ×3 in the `--update` write path. The reported defects are not fixed
+  here — the report is documentation, published so the findings are visible.
+- **`docs/field-report-2026-10-14/.gitattributes`** — disables line-ending
+  normalization under `evidence/`: those bytes (CRLF, NUL) are the evidence,
+  and `MANIFEST.sha256` has to verify against the committed content.
+
+### Changed — version 4.1.0
+
+- Version bumped from `4.0.0` to `4.1.0` in `VERSION`, the
+  `CTF_SCRIPT_VERSION` / `$ScriptVersion` constants, the `ctf.bat` header, the
+  README badge and `SKILL.md`. These are the only edits to the engine files:
+  the collection code is byte-identical to 4.0.0.
+
 ### Notes
 
-- Engine bytes are unchanged: `ctf.ps1`, `ctf.bat` and `ctf.sh` are not touched
-  by this change, so the byte-parity suite is unaffected.
+- Engine behaviour is unchanged apart from the version constants above, so the
+  byte-parity suite is unaffected.
 - The option-name differences are a consequence of PowerShell binding parameter
   names case-insensitively, so `-e`/`-E` and `-v`/`-V` cannot both have short
   forms on Windows. `ctf.ps1 -Help` remains the authoritative Windows list.
-All notable changes to this project are documented in this file.
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [4.0.0] — 2026-10-08
 
@@ -188,6 +215,7 @@ test suite. Every fixed defect below is reproduced by a test in `tests/`.
   taken as `SOURCE_DIR`. So `ctf -e php ./src` means "extension php, source
   ./src" instead of silently treating `./src` as a second extension.
 
+[4.1.0]: https://github.com/paulmann/ctf-collect-to-file/releases/tag/v4.1.0
 [4.0.0]: https://github.com/paulmann/ctf-collect-to-file/releases/tag/v4.0.0
 
 ## [3.1.0] — 2025-10

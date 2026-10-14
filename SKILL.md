@@ -51,8 +51,8 @@ pwsh -File .\install-ctf.ps1 -InstallRoot C:\tools\ctf -Uninstall
 ### Проверка после установки
 
 ```powershell
-pwsh -NoProfile -Command "ctf --version"      # ctf v4.0.0
-cmd  /c "ctf --version"                        # ctf v4.0.0
+pwsh -NoProfile -Command "ctf --version"      # ctf v4.1.0
+cmd  /c "ctf --version"                        # ctf v4.1.0
 ```
 
 ### Раскладка и почему она такая

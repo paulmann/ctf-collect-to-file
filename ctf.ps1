@@ -35,7 +35,7 @@
 
 .NOTES
     Author:  Mikhail Deynekin <Mikhail@Deynekin.com> | https://deynekin.com
-    Version: 4.0.0 (must match the VERSION file)
+    Version: 4.1.0 (must match the VERSION file)
     License: MIT
 #>
 
@@ -109,7 +109,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # --- constants ---------------------------------------------------------------
-$ScriptVersion = '4.0.0'
+$ScriptVersion = '4.1.0'
 $ScriptName    = 'ctf.ps1'
 $RepoOwner     = 'paulmann'
 $RepoName      = 'ctf-collect-to-file'
@@ -178,7 +178,7 @@ function Stop-WithError {
 # --- help / version ----------------------------------------------------------
 function Show-Usage {
     @'
-ctf.ps1 v4.0.0 - collect source files into one aggregate document
+ctf.ps1 v4.1.0 - collect source files into one aggregate document
 
 USAGE
   ctf.ps1 [Extension] [SourceDir] [OutputFile]
