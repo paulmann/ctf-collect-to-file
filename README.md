@@ -77,6 +77,15 @@ ctf --version      # ctf v4.0.0
 ctf --print-config .
 ```
 
+On Windows, use the PowerShell installer, which also puts the bare name `ctf`
+on the `PATH` — see [§10.1](#101-install-into-path-as-ctf):
+
+```powershell
+git clone https://github.com/paulmann/ctf-collect-to-file.git
+cd ctf-collect-to-file
+pwsh -NoLogo -NoProfile -NonInteractive -File .\install-ctf.ps1
+```
+
 Requirements: **bash 4.2+** (CentOS/RHEL 7 baseline), plus `awk`, `find`,
 `sort`, `sed`, `head`, `tail`, `od`, `cat`, `wc`, `mktemp`, `stat`.
 Optional and auto-detected: `file` (faster binary check), `git` (`--git`),
@@ -365,10 +374,9 @@ ctf --check-update && echo "up to date" || echo "update available"
 
 ## 10. Windows
 
-`ctf.bat` is a thin launcher; the implementation lives in `ctf.ps1`
-(Windows PowerShell 5.1+ or PowerShell 7+). Both are CRLF in the repository —
-enforced by `.gitattributes`, because LF line endings break labels and `goto`
-in `cmd.exe`.
+`ctf.ps1` is the Windows implementation; `ctf.bat` is the upstream launcher.
+Both are CRLF in the repository — enforced by `.gitattributes`, because LF line
+endings break labels and `goto` in `cmd.exe`.
 
 ```bat
 ctf.bat php C:\projects\src C:\out\bundle.md
@@ -381,11 +389,125 @@ ctf.bat --check-update
 
 The PowerShell port implements the collection, filtering, binary detection,
 fence selection and Markdown/JSON output. Options that depend on POSIX
-semantics (`--files-from -` from stdin, symlink modes) behave as documented in
+semantics (symlink modes, `--files-from -` from stdin) behave as documented in
 `ctf.ps1 -Help`.
 
----
+### 10.1 Install into `PATH` as `ctf`
 
+```powershell
+git clone https://github.com/paulmann/ctf-collect-to-file.git
+cd ctf-collect-to-file
+pwsh -NoLogo -NoProfile -NonInteractive -File .\install-ctf.ps1
+```
+
+Requirements: **PowerShell 7.6+** (`pwsh`) for the installer. The engine itself
+also runs on Windows PowerShell 5.1. The installer copies the engine byte for
+byte, writes the launcher below, and appends one directory to the user `PATH`;
+it never edits the engine and never touches the machine-wide `PATH`.
+
+Installed layout:
+
+```
+<InstallRoot>\bin\ctf.cmd    launcher; only this directory goes on PATH
+<InstallRoot>\lib\ctf.ps1    the engine, byte-identical to the repository
+<InstallRoot>\lib\ctf.bat    upstream launcher, kept for parity
+<InstallRoot>\install-ctf.ps1
+```
+
+After installation, `ctf` resolves to the same thing from both shells:
+
+```powershell
+pwsh -NoProfile -Command "(Get-Command ctf).Source"   # ...\bin\ctf.cmd
+cmd  /c "where ctf"                                    # ...\bin\ctf.cmd
+```
+
+### 10.2 Why the engine is not on `PATH`
+
+Putting `ctf.ps1` in a `PATH` directory looks simpler and breaks in two
+measured ways. Both were reproduced on PowerShell 7.6.
+
+**PowerShell prefers a `.ps1`, and does not bind `--long-option` arguments to
+script parameters.** A bare command name resolves to a `.ps1` in preference to
+a `.cmd`, and `--name` style arguments are not bound to parameters — the
+literal string becomes a positional argument.
+
+| With the engine on `PATH` | Expected | Actual |
+|:---|:---|:---|
+| `ctf --version` | prints the version | runs a collection: `"--version"` fills the positional `Extension`, and `all---version-files.md` appears in the current directory |
+| `ctf --ext php --output out.md .\src` | writes `out.md` | `A positional parameter cannot be found that accepts argument 'out.md'` |
+| `ctf --toc` | adds a table of contents | writes `all---toc-files.md` |
+
+**`cmd.exe` prefers a `.bat`, and the upstream `ctf.bat` enables delayed
+expansion**, which deletes `!` characters from every argument. A path such as
+`B:\!1\src` was silently truncated to `B:`, and the wrong directory was scanned
+— with no error in the output at all.
+
+The launcher written by the installer therefore sets
+`EnableExtensions DisableDelayedExpansion`, calls the engine through
+`pwsh -File`, and forwards both arguments and exit code. Paths containing `!`,
+`&` or spaces survive intact; a path with `!` is the regression this guards
+against.
+
+### 10.3 Option names differ between the ports
+
+Document layout and most options are the same, but **not every name is**. The
+cause is a platform rule, not an oversight: PowerShell binds parameter names
+case-insensitively, so bash option pairs that differ only in case — `-e`/`-E`
+for `--ext`/`--exclude`, `-v`/`-V` for `--verbose`/`--version` — cannot both
+have short forms. Verified by running the installed launcher.
+
+| Feature | bash (`ctf.sh`) | Windows (`ctf.ps1`) |
+|:---|:---|:---|
+| version | `-V`, `--version` | `--version`; **`-V` is `--verbose`** |
+| exclude | `-E`, `--exclude` | `--exclude`; `-E` is bound to `--ext` |
+| verbose | `-v`, `--verbose` | `-v`, `-Trace`, `--trace`; **`--verbose` is silently ignored** |
+| config file | `-c`, `--config` | not supported |
+| effective configuration | `--print-config` | not supported |
+| `--files-from -` (stdin) | supported | exits `2` |
+| `--git tracked` outside a repository | supported | exits `2` |
+
+Short forms that work on Windows: `-e` (`--ext`), `-o` (`--output`), `-F`
+(`--format`), `-d` (`--max-depth`), `-I` (`--include`), `-n` (`--dry-run`),
+`-q` (`--quiet`), `-v` (`--verbose`), `-h` (`--help`), `-L` (`--follow`). Use
+the long form for everything else. `ctf.ps1 -Help` is the authoritative option
+list for the Windows port.
+
+**`--verbose` is a silent no-op on Windows** and is worth calling out, because
+it fails without a word. The engine's own flag is named `Trace` and aliased to
+`v`; `-Help` documents it as `-Trace` — "Debug output (equivalent of the bash
+`--verbose`)". The literal argument `--verbose` matches no parameter of the
+script, but PowerShell binds it to its **common** `-Verbose` parameter, so the
+call succeeds, prints nothing extra, and exits `0`. Measured through the
+installed launcher on a tree containing a binary file — the one code path that
+emits a debug line:
+
+| Argument | ctf debug lines emitted |
+|:---|---:|
+| `-v` | 1 |
+| `-Trace` / `--trace` | 1 |
+| `--verbose` | 0 |
+| `-Verbose` | 0 |
+
+Use `-v` (or `-Trace`) when you need the skip reasons. Note that the port emits
+debug output from a **single call site** — the deterministic binary-skip during
+collection — so `-v` is far quieter than the bash `--verbose`, which reports
+every skip with its reason. For a per-file inventory of what was selected and
+skipped, use `--dry-run` (one TSV row per file), or read the skip-reasons table
+at the end of the produced document.
+
+**Exit codes.** A PowerShell parameter-binding failure exits `1`, not `2`; code
+`2` comes from the engine's own usage checks. `--check-update` exits `3` when a
+newer version exists, so it still works as a CI gate.
+
+### 10.4 Line endings and linting
+
+`.bat` and `.ps1` are CRLF; `.sh`, `Makefile` and `.gitattributes` are LF. CI
+enforces this, together with a parser check of `ctf.ps1`, so normalising a
+Windows file to LF fails the build. `ctf.ps1` deliberately has no `#Requires`
+directives, so that the port stays loadable on Windows PowerShell 5.1 — do not
+add them without a matching decision.
+
+---
 ## 11. Configuration file
 
 ```ini
@@ -506,6 +628,9 @@ docs/ANALYSIS.md   audit of v3.1.0: 20 defects with reproduction commands
 docs/DECISIONS.md  20 design decisions: context, choice, cost
 install.sh         POSIX installer (no make required)
 Makefile           install / uninstall / test / lint / check / dist
+install-ctf.ps1    Windows installer: copies the engine, writes the launcher,
+                   adds its directory to the user PATH (see §10.1)
+SKILL.md           agent-facing usage and installation guide
 .github/workflows/ci.yml
 ```
 

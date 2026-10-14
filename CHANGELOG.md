@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased]
+
+### Added — Windows installation and agent documentation
+
+- **`install-ctf.ps1`** — a Windows installer that copies the engine, writes a
+  launcher and adds one directory to the user `PATH`, so the bare name `ctf`
+  works. The installer exists because the obvious layout is unsafe on Windows;
+  both defects below were reproduced on PowerShell 7.6 before the launcher was
+  written.
+  - PowerShell resolves a bare name to a `.ps1` in preference to a `.cmd`, and
+    it does **not** bind `--long-option` arguments to script parameters. With
+    the engine on `PATH`, `ctf --version` filled the positional `Extension`
+    and started a collection run — writing `all---version-files.md` into the
+    current directory — and `ctf --ext php --output out.md .\src` failed with
+    "A positional parameter cannot be found".
+  - `cmd.exe` resolves a bare name to a `.bat`, and the upstream `ctf.bat`
+    enables delayed expansion, which deletes `!` characters from every
+    argument: a path such as `B:\!1\src` was silently truncated to `B:` and the
+    wrong directory was scanned, with no error reported.
+  - The launcher therefore sets `EnableExtensions DisableDelayedExpansion`,
+    calls the engine through `pwsh -File`, and forwards arguments and exit code
+    unchanged. Only `bin\ctf.cmd` goes on `PATH`; the engine stays in `lib\`.
+- **`--verbose` is a silent no-op on Windows.** The port's flag is declared as
+  `$Trace`, aliased to `v`, and documented in `-Help` as `-Trace`. The literal
+  argument `--verbose` matches no parameter of the script and is bound to
+  PowerShell's **common** `-Verbose` parameter instead: the call succeeds,
+  prints nothing extra and exits `0`. Measured through the installed launcher
+  on a tree containing a binary file — the single call site that emits a debug
+  line — `-v` and `-Trace` emit 1 line, `--verbose` and `-Verbose` emit 0. Use
+  `-v`/`-Trace`; for a per-file inventory use `--dry-run` or the skip-reasons
+  table in the document.
+- **`SKILL.md`** — an agent-facing guide: installation, usage, the option-name
+  differences between the bash and PowerShell ports, exit codes, and a
+  troubleshooting table for the traps above.
+- **README §10.1–§10.4** — the installed layout, the two Windows traps, the
+  measured option-name parity table between `ctf.sh` and `ctf.ps1`, and the
+  line-ending/lint constraints.
+
+### Notes
+
+- Engine bytes are unchanged: `ctf.ps1`, `ctf.bat` and `ctf.sh` are not touched
+  by this change, so the byte-parity suite is unaffected.
+- The option-name differences are a consequence of PowerShell binding parameter
+  names case-insensitively, so `-e`/`-E` and `-v`/`-V` cannot both have short
+  forms on Windows. `ctf.ps1 -Help` remains the authoritative Windows list.
 All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
