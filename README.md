@@ -671,6 +671,6 @@ the determinism tests).
 
 ## 15. License
 
-MIT — see [LICENSE](LICENSE).
+PolyForm Noncommercial 1.0.0 — see [LICENSE](LICENSE).
 
 Author: Mikhail Deynekin — <Mikhail@Deynekin.com> — https://deynekin.com
