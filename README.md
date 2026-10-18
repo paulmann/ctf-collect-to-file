@@ -9,7 +9,6 @@ LLM context, code-review bundles and auditable source snapshots.
   <img src="https://img.shields.io/badge/bash-4.2%2B-blue" alt="bash 4.2+">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="Linux / macOS">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT">
   <img src="https://img.shields.io/badge/shellcheck-clean-success" alt="shellcheck clean">
 </p>
 
