@@ -312,11 +312,21 @@ glob_match() { [[ "$2" == $1 ]]; }
 # GNU sha256sum/shasum переходят в «escape-режим», если имя файла содержит
 # перевод строки или обратный слэш, и печатают '\\' ПЕРЕД хешем. Без его
 # снятия хеш оказывался на один символ длиннее и с мусорным префиксом.
+# macOS поставляет BSD sha256sum, который печатает "SHA256 (file) = <hash>", а не
+# "<hash>  <file>"; поэтому хеш берётся из любого поля из 64 hex-символов, а не из
+# первого. `--` принимает GNU, BSD может не принять — тогда повторяем без него.
+_ctf_sha_from_output() {
+    # Мусорный префикс '\\' из escape-режима снимает сам awk: gsub(/\\\\/,"").
+    awk '{ gsub(/\\/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-fA-F]{64}$/) { print tolower($i); exit } }'
+}
 sha256_of() {
     local f="$1" h=''
-    if (( CTF_HAVE_SHA256SUM )); then h="$(sha256sum -- "$f" 2>/dev/null | awk '{print $1}')"
-    elif (( CTF_HAVE_SHASUM )); then h="$(shasum -a 256 -- "$f" 2>/dev/null | awk '{print $1}')"; fi
-    h="${h#\\}"
+    if (( CTF_HAVE_SHA256SUM )); then
+        h="$(sha256sum -- "$f" 2>/dev/null | _ctf_sha_from_output)"
+        [[ -n "$h" ]] || h="$(sha256sum "$f" 2>/dev/null | _ctf_sha_from_output)"
+    elif (( CTF_HAVE_SHASUM )); then
+        h="$(shasum -a 256 "$f" 2>/dev/null | _ctf_sha_from_output)"
+    fi
     [[ "$h" =~ ^[0-9a-f]{64}$ ]] || { printf ''; return 0; }
     printf '%s' "$h"
 }
