@@ -133,7 +133,19 @@ ctf_run --update --update-force
 assert_rc 0 "$CTF_RC" "--update-force переустанавливает даже ту же версию"
 
 # --- 2d. валидация загрузки: скрипт не ставится, если он повреждён ----------
-restore() { cp "$ORIG_CTF" "$WORK/ctf.sh"; sed -i "s/^readonly CTF_SCRIPT_VERSION=.*/readonly CTF_SCRIPT_VERSION='0.0.1'/" "$WORK/ctf.sh"; chmod +x "$WORK/ctf.sh"; }
+# Переносимый вариант: BSD sed (macOS) не принимает `sed -i EXPR FILE` без аргумента
+# резервной копии, поэтому правим через временный файл, а не in-place.
+restore() {
+    cp "$ORIG_CTF" "$WORK/ctf.sh"
+    local tmp
+    tmp="$(mktemp "${TMPDIR:-/tmp}/ctf-restore.XXXXXX")" || return 1
+    sed "s/^readonly CTF_SCRIPT_VERSION=.*/readonly CTF_SCRIPT_VERSION='0.0.1'/" "$WORK/ctf.sh" > "$tmp" \
+        && cat "$tmp" > "$WORK/ctf.sh"
+    local rc=$?
+    rm -f -- "$tmp"
+    chmod +x "$WORK/ctf.sh"
+    return $rc
+}
 good_ctf="$(cat "$SRV/main/ctf.sh")"
 
 pad() { awk 'BEGIN{for(i=0;i<300;i++) print "# padding line " i}'; }

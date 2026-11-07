@@ -10,6 +10,12 @@ CTF="${CTF:-$CTF_ROOT/ctf.sh}"
 
 # Рабочая область прогона: создаётся один раз, удаляется по завершении.
 CTF_TEST_TMP="${CTF_TEST_TMP:-$(mktemp -d "${TMPDIR:-/tmp}/ctf-tests.XXXXXX")}"
+# macOS: TMPDIR заканчивается '/', а /var — симлинк на /private/var. Без нормализации
+# ожидаемые пути в тестах не совпадают с абсолютными путями, которые ctf.sh печатает
+# после `pwd -P`, и сравнение ctf.sh с ctf.ps1 идёт по разным путям.
+CTF_TEST_TMP="$(cd -- "$CTF_TEST_TMP" 2>/dev/null && pwd -P)" || {
+    printf 'cannot resolve %s\n' "$CTF_TEST_TMP" >&2; exit 2
+}
 mkdir -p -- "$CTF_TEST_TMP" || { printf 'cannot create %s\n' "$CTF_TEST_TMP" >&2; exit 2; }
 
 CTF_ASSERTS=0
