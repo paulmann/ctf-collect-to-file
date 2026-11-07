@@ -35,6 +35,13 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+      # macOS поставляет bash 3.2, а ctf.sh требует 4.2+ (шапка скрипта): без этой
+      # ступени весь набор тестов падает на версии оболочки, а не на коде.
+      - name: Ensure a supported bash (macOS ships 3.2)
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash
+          echo "$(brew --prefix bash)/bin" >> "$GITHUB_PATH"
       - name: Show environment
         run: |
           bash --version | head -1

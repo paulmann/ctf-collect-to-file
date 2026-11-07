@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Структура выходного документа: заголовки, fence-и, форматы, TOC, метаданные.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Выходной документ: разметка и форматы"
@@ -54,6 +55,7 @@ assert_contains 'привет' "$(cat "$T/uni.md")" "UTF-8 (кириллица) 
 ctf_run -q --no-timestamp --toc -e sh -o "$T/full.md" "$T/src"
 assert_contains '# Project Source Code Aggregate' "$(cat "$T/full.md")" "заголовок документа присутствует"
 assert_contains '## Table of contents' "$(cat "$T/full.md")" "--toc добавляет оглавление"
+# shellcheck disable=SC2016  # Ожидаемый текст — Markdown, обратные кавычки здесь литерал.
 assert_contains '- [`a/one.sh`](#aonesh)' "$(cat "$T/full.md")" "якорь TOC соответствует правилам GitHub"
 assert_contains '## Summary' "$(cat "$T/full.md")" "сводка присутствует"
 assert_contains '| Collected | 2 |' "$(cat "$T/full.md")" "сводка содержит точное число собранных файлов"
@@ -65,6 +67,7 @@ assert_not_contains '## Summary' "$(cat "$T/ns.md")" "--no-summary убирае�
 ctf_run -q --no-timestamp --title 'Мой бандл' -e sh -o "$T/ti2.md" "$T/src"
 assert_contains '# Мой бандл' "$(cat "$T/ti2.md")" "--title задаёт заголовок (UTF-8)"
 ctf_run -q --no-timestamp --heading-level 4 -e sh -o "$T/h4.md" "$T/src"
+# shellcheck disable=SC2016  # То же: имя файла в заголовке выделено обратными кавычками.
 assert_contains '#### `a/one.sh`' "$(cat "$T/h4.md")" "--heading-level 4 меняет уровень заголовков"
 ctf_run -q --no-timestamp --path-style abs -e sh -o "$T/abs.md" "$T/src"
 assert_contains "$T/src/a/one.sh" "$(cat "$T/abs.md")" "--path-style abs печатает абсолютные пути"

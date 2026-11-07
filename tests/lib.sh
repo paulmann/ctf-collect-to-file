@@ -111,7 +111,9 @@ mk_fixture_tree() {
     printf ''                                 > "$root/src/b/empty.txt"     # пустой файл
     printf 'no trailing newline'              > "$root/src/b/nonl.txt"      # без \n в конце
     printf 'line1\r\nline2\r\n'               > "$root/src/b/crlf.txt"      # CRLF
+    # shellcheck disable=SC2016  # Обратные кавычки — данные Markdown-фенса, подстановка не нужна.
     printf 'has ``` backticks\nand ```` four\n' > "$root/src/b/fences.md"   #_fence-зонд
+    # shellcheck disable=SC2016  # То же: фенсы — содержимое фикстуры.
     printf 'before\n```\nafter\n`````\nend\n' > "$root/src/b/tricky.md"     # fence только из обратных
     printf '~~~\ncode\n~~~\n'                 > "$root/src/b/tilde.md"      # fence из тильд
     printf 'caf\303\251 \320\277\321\200\320\270\320\262\320\265\321\202\n' > "$root/src/b/unicode.txt"
@@ -150,6 +152,8 @@ section() { printf '\n%s%s%s\n' "$_c_ylw" "$1" "$_c_rst"; }
 # <<'PL' ... PL). Нужен, чтобы проверки «нет eval» не срабатывали на perl-eval
 # внутри встроенной полезной нагрузки HTTP-транспорта.
 bash_code_only() {
+    # shellcheck disable=SC2026  # Кавычки awk-обвязки: смежные одинарные/двойные кавычки
+                                 # собирают awk-программу в одну строку, это не утечка слова.
     awk '
         # Маркер heredoc может стоять в середине строки (после команды),
         # поэтому ищем `<<'TAG'` в любом месте, а не только в начале.
@@ -164,7 +168,8 @@ bash_code_only() {
 }
 
 # Проверяет, что в файле нет NUL-байтов (главный критерий «документ не испорчен»).
-has_nul() { LC_ALL=C tr -d '\0' < "$1" | cmp -s - "$1"; }
+# Процессная подстановка: сравнение идёт с потоком, а не с повторным чтением того же файла.
+has_nul() { cmp -s <(LC_ALL=C tr -d '\0' < "$1") "$1"; }
 
 ctf_report_and_cleanup() {
     if [[ -n "${CTF_RESULT_FILE:-}" ]]; then

@@ -2,6 +2,7 @@
 # Безопасность и надёжность: атомарность, симлинк-приёмник, temp-очистка,
 # конфиг-файл, «враждебные» имена файлов, отсутствие eval.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Безопасность: атомарная запись, конфиг, враждебные имена"
@@ -98,6 +99,7 @@ assert_contains '=====' "$(cat "$T/conf.out")" "CTF_FORMAT=txt из конфиг
 ctf_run --config "$T/absent.conf" "$S"; assert_rc 2 "$CTF_RC" "несуществующий конфиг -> код 2"
 
 # Конфиг с кодовой инъекцией обязан быть отвергнут (значения — данные, не код).
+# shellcheck disable=SC2016  # Полезная нагрузка инъекции — литерал, который скрипт обязан не исполнять.
 printf 'CTF_TITLE=$(touch %s/PWNED_conf)\n' "$T" > "$T/evil.conf"; chmod 0644 "$T/evil.conf"
 rm -f "$T/PWNED_conf"
 ctf_run --config "$T/evil.conf" -e sh -o "$T/evil.out" "$S"
@@ -126,6 +128,7 @@ else
 fi
 # Команды не должны собираться строкой и исполняться через оболочку.
 if grep -nE '(bash|sh|zsh)[[:space:]]+-c[[:space:]]+"?\$' "$T/bash_only.sh" | grep -q .; then
+    # shellcheck disable=SC2016  # Сообщение об ошибке цитирует опасный шаблон дословно.
     fail 'в ctf.sh есть исполнение строки через оболочку: shell -c "$var"'
 else
     pass "в ctf.sh нет исполнения командной строки из переменной"

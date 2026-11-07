@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 #
 # Паритет платформ: ctf.sh (bash) и ctf.ps1 (PowerShell) обязаны выдавать
@@ -28,6 +29,7 @@ if [[ ! -f "$PS1" ]]; then
     fail "ctf.ps1 отсутствует в $CTF_ROOT"
     exit "$CTF_FAILED"
 fi
+# shellcheck disable=SC2016  # Строка — программа PowerShell, $PSVersionTable раскрывает сама pwsh.
 pass "PowerShell найден: $PWSH_BIN ($("$PWSH_BIN" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>/dev/null))"
 
 T="$CTF_TEST_TMP/parity"; mk_fixture_tree "$T"; S="$T/src"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Интерфейс командной строки: опции, позиционная форма v1–v3, коды выхода.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "CLI: опции, позиционные аргументы, коды выхода"

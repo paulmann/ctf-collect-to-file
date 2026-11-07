@@ -3,6 +3,7 @@
 # Сеть не нужна: поднимается локальный HTTP-сервер (python3), а корень загрузки
 # переопределяется через CTF_UPDATE_BASE_URL — это же используется для зеркал.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Самообновление (--check-update / --update)"

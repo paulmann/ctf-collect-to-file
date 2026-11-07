@@ -1045,12 +1045,16 @@ do_update() {
     # survive; fall back to mv(1) only if that is impossible.
     if ! cat -- "$tmp" > "$target" 2>/dev/null; then
         if ! mv -f -- "$tmp" "$target"; then
-            [[ -n "$backup" ]] && cp -p -- "$backup" "$target" 2>/dev/null || true
+            if [[ -n "$backup" ]]; then
+                cp -p -- "$backup" "$target" 2>/dev/null || true
+            fi
             rm -f -- "$tmp"
             die3 "Cannot write '${target}'. The previous version was restored."
         fi
     fi
-    [[ -n "$mode" ]] && chmod "$mode" -- "$target" 2>/dev/null || true
+    if [[ -n "$mode" ]]; then
+        chmod "$mode" -- "$target" 2>/dev/null || true
+    fi
     rm -f -- "$tmp"
     info "Installed ctf v${rv} → ${target}"
 
@@ -1723,7 +1727,9 @@ CTF_TMP_FINAL=''
 ctf_cleanup() {
     local f
     for f in "$CTF_TMP_HEAD" "$CTF_TMP_BODY" "$CTF_TMP_FINAL"; do
-        [[ -n "$f" && -f "$f" ]] && rm -f -- "$f" 2>/dev/null || true
+        if [[ -n "$f" && -f "$f" ]]; then
+            rm -f -- "$f" 2>/dev/null || true
+        fi
     done
     CTF_TMP_HEAD=''; CTF_TMP_BODY=''; CTF_TMP_FINAL=''
 }

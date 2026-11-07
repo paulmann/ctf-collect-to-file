@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Определение бинарных файлов. Главный регрессионный тест v3: детерминированность.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Бинарность: детерминированность и ложные срабатывания"
@@ -56,7 +57,7 @@ assert_eq "0" "${STAT[collected]}" "--binary always: не собрано нич�
 
 # 6. Счётчики сходятся: candidates == collected + skipped.
 ctf_stats "$T"
-sum=$(( ${STAT[collected]} + ${STAT[skipped]} ))
+sum=$(( STAT[collected] + STAT[skipped] ))
 assert_eq "${STAT[candidates]}" "$sum" "candidates == collected + skipped (учёт полный, потерь нет)"
 
 exit "$CTF_FAILED"

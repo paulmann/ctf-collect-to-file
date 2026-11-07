@@ -2,6 +2,7 @@
 # Мета-проверки поставки: версии, синтаксис, статический анализ, переносимость
 # bash 4.2, переводы строк, согласованность README/help/парсера.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Мета: версии, shellcheck, bash 4.2, согласованность документов"
@@ -108,8 +109,10 @@ if [[ -f "$CTF_ROOT/README.md" ]]; then
 else fail "README.md отсутствует"; fi
 
 # --- лицензия ---------------------------------------------------------------
-if [[ -f "$CTF_ROOT/LICENSE" ]] && head -1 "$CTF_ROOT/LICENSE" | grep -qi 'MIT'; then
-    pass "LICENSE присутствует и это MIT"
-else fail "LICENSE отсутствует или не MIT"; fi
+# Лицензия проекта сменилась на PolyForm Noncommercial 1.0.0 (LICENSE строка 1,
+# README и CHANGELOG): проверка должна утверждать то, что лежит в репозитории.
+if [[ -f "$CTF_ROOT/LICENSE" ]] && head -1 "$CTF_ROOT/LICENSE" | grep -qi 'PolyForm Noncommercial'; then
+    pass "LICENSE присутствует и это PolyForm Noncommercial 1.0.0"
+else fail "LICENSE отсутствует или не PolyForm Noncommercial 1.0.0"; fi
 
 exit "$CTF_FAILED"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Отбор файлов: расширения, исключения, симлинки, глубина, размер, git, --files-from.
 # shellcheck source=lib.sh
+# shellcheck disable=SC1091  # Путь к lib.sh собирается динамически; сама библиотека — отдельный входной файл CI.
 # shellcheck disable=SC2154  # _c_ylw/_c_rst и прочие общие задаются в lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 section "Отбор: расширения, исключения, симлинки, git"
@@ -102,6 +103,7 @@ o_path="$(ctf_run -q --dry-run --sort path "$S"; printf '%s' "$CTF_OUT" | cut -f
 o_name="$(ctf_run -q --dry-run --sort name "$S"; printf '%s' "$CTF_OUT" | cut -f1 | tr '\n' ',')"
 assert_ne "$o_path" "$o_name" "--sort name даёт иной порядок, чем --sort path"
 s1="$(ctf_run -q --dry-run --sort size "$S"; printf '%s' "$CTF_OUT" | cut -f3 | tr '\n' ' ')"
+# shellcheck disable=SC2086  # $s1 намеренно разбивается на слова: это список размеров для sort.
 if [[ "$s1" == "$(printf '%s\n' $s1 | sort -nr | tr '\n' ' ')" ]]; then pass "--sort size упорядочивает по убыванию размера"
 else fail "--sort size: порядок неверен ($s1)"; fi
 first_path="$(printf '%s' "$o_path" | cut -d, -f1)"
